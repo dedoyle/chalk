@@ -1,0 +1,55 @@
+@font-face {
+  font-family: 'icomoon';
+  src:url('../fonts/icomoon.eot?wqtqu1');
+  src:url('../fonts/icomoon.eot?#iefixwqtqu1') format('embedded-opentype'),
+    url('../fonts/icomoon.ttf?wqtqu1') format('truetype'),
+    url('../fonts/icomoon.woff?wqtqu1') format('woff'),
+    url('../fonts/icomoon.svg?wqtqu1#icomoon') format('svg');
+  font-weight: normal;
+  font-style: normal;
+}
+
+[class^="icon-"]:before,
+[class^="icon-"]:after,
+[class*=" icon-"]:before,
+[class*=" icon-"]:after {
+  display: inline-block;
+  font-family: 'icomoon';
+  speak: none;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-transform: none;
+  text-rendering: auto;
+  line-height: 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.icon-local_hospital:before {
+  content: "\e1e0";
+}
+.icon-local_mall:before {
+  content: "\e1e4";
+}
+.icon-cc-visa:before {
+  content: "\f1f0";
+}
+.icon-line-chart:before {
+  content: "\f201";
+}
+.icon-gift:before {
+  content: "\f042";
+}
+.icon-drink:before {
+  content: "\e601";
+}
+.icon-loop:before {
+  content: "\e607";
+}
+.icon-pig:before {
+  content: "\e603";
+}
+.icon-book:before {
+  content: "\e604";
+}

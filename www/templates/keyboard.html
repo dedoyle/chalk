@@ -1,0 +1,39 @@
+<div class="keyboard">
+  <div class="row row-20">
+    <div class="col col-25"><button class="button button-full button-clear divide" data-ng-click="write('/')">÷</button></div>
+    <div class="col col-25"><button class="button button-full button-clear multiply" data-ng-click="write('*')">×</button></div>
+    <div class="col col-25"><button class="button button-full button-clear subtract" data-ng-click="write('-')">－</button></div>
+    <div class="col col-25"><button class="button button-full button-clear add" data-ng-click="write('+')">＋</button></div>
+  </div>
+  <div class="row row-80">
+    <div class="col col-75 num">
+      <div class="row row-25">
+        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('1')">1</button></div>
+        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('2')">2</button></div>
+        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('3')">3</button></div>
+      </div>
+      <div class="row row-25">
+        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('4')">4</button></div>
+        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('5')">5</button></div>
+        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('6')">6</button></div>
+      </div>
+      <div class="row row-25">
+        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('7')">7</button></div>
+        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('8')">8</button></div>
+        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('9')">9</button></div>
+      </div>
+      <div class="row row-25">
+        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('.')">.</button></div>
+        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('0')">0</button></div>
+        <div class="col col-33"><button class="button button-full button-clear ion-backspace-outline"></button></div>
+      </div>
+    </div>
+    <div class="col col-25 controll">
+      <div class="row row-50"><button class="button button-full button-clear button-red ac"  data-ng-click="reset()">AC</button></div>
+      <div class="row row-50">
+        <button class="button button-full button-clear button-green" data-ng-show="isExpression" data-ng-click="compute()">=</button>
+        <button class="button button-full button-clear button-green" data-ng-show="!isExpression" data-ng-click="hideKeyboard()">OK</button>
+      </div>
+    </div>
+  </div>
+</div>

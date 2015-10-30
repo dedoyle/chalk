@@ -1,0 +1,40 @@
+<ion-view class="detail-page stable-bg" view-title="支出详情">
+  <ion-nav-buttons side="right">
+    <button class="button button-clear" data-ng-click="detail.goToEditExpense()">编辑</button>
+  </ion-nav-buttons>
+  <ion-content>
+    <div class="list">
+      <div class="item item-icon-left item-name">
+        <i class="icon {{ detail.item.icon }}"></i>
+        <span>{{ detail.item.name }}</span>
+        <span class="item-note money">￥{{ detail.item.money }}</span>
+      </div>
+      <div class="item item-icon-left">
+        <i class="icon ion-cash"></i>
+        <div>
+          <p>账户</p>
+          <p>{{ detail.item.account }}</p>
+        </div>
+      </div>
+      <div class="item item-icon-left">
+        <i class="icon ion-refresh"></i>
+        <div>
+          <p>固定支出</p>
+          <p>{{ detail.item.regularExpense }}</p>
+        </div>
+      </div>
+      <div class="item item-icon-left">
+        <i class="icon ion-edit"></i>
+        <div>
+          <p>描述</p>
+          <p>{{ detail.item.description }}</p>
+        </div>
+      </div>
+      <div class="item item-icon-left">
+        <i class="icon ion-calendar"></i>
+        <span>{{ detail.item.date | date: 'yyyy/MM/dd'}}</span>
+      </div>
+      <button class="button button-assertive" data-ng-click="detail.deleteItem(detail.item)">删除</button>
+    </div>
+  </ion-content>
+</ion-view>

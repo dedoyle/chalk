@@ -1,0 +1,30 @@
+<ion-view class="edit-page stable-bg" view-title="{{ edit.action.name }}">
+  <ion-nav-buttons side="right">
+    <button class="button button-clear" data-ng-click="edit.saveExpense()">保存</button>
+  </ion-nav-buttons>
+  <ion-content>
+    <div class="cost assertive-bg light row padding-vertical-20">
+      <div class="col" data-ng-click="edit.showkeyboard = true"><i class="icon ion-social-yen"></i><span>{{edit.expense.money}}</span></div>
+    </div>
+    <ion-slide-box class="tag-slider" on-slide-changed="edit.slideChanged(index)">
+      <ion-slide data-ng-repeat="tags in edit.tag_list">
+        <ul class="row" data-ng-repeat="row in tags">
+          <li class="col col-20" data-ng-repeat="tag in row">
+            <div data-ng-class="{'activated': edit.isSelected(tag.name)}">
+              <a href="#" data-ng-click="edit.select(tag.name, tag.icon)">
+                <i class="icon {{ tag.icon }}"></i>
+                <p>{{ tag.name }}</p>
+              </a>
+            </div>
+          </li>
+        </ul>
+      </ion-slide>
+    </ion-slide-box>
+    <div class="list">
+      <a href="#" class="item item-icon-left stable-bg" data-ng-click="edit.goToDescription()"><i class="icon ion-edit"></i><div class="item-note"><p>描述</p><p class="ovh">{{ edit.expense.description }}</p></div></a>
+      <a href="#" class="item item-icon-left stable-bg" data-ng-click="edit.showAccounts()"><i class="icon ion-cash"></i><div class="item-note"><p>账户</p><p>{{ edit.expense.account }}</p></div></a>
+      <a href="#" class="item item-icon-left stable-bg" data-ng-click="edit.showRegularExpense()"><i class="icon ion-refresh"></i><div class="item-note"><p>{{ edit.expense.regularExpense }}</p><p>无</p></div></a>
+    </div>
+    <keyboard-number data-ng-show="edit.showkeyboard" calculation="edit.expense.money" showkeyboard="edit.showkeyboard"></keyboard-number>
+  </ion-content>
+</ion-view>

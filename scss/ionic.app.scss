@@ -1,0 +1,347 @@
+@charset "UTF-8";
+
+/*
+To customize the look and feel of Ionic, you can override the variables
+in ionic's _variables.scss file.
+
+For example, you might change some of the default colors:
+
+$light:                           #fff !default;
+$stable:                          #f8f8f8 !default;
+$positive:                        #387ef5 !default;
+$calm:                            #11c1f3 !default;
+$balanced:                        #33cd5f !default;
+$energized:                       #ffc900 !default;
+$assertive:                       #ef473a !default;
+$royal:                           #886aea !default;
+$dark:                            #444 !default;
+*/
+
+// The path for our ionicons font files, relative to the built CSS in www/css
+$ionicons-font-path: "../lib/ionic/fonts" !default;
+$assertive: #EA5C51;
+$royal: #555577;
+$stable: #EEEBD2;
+// Include all of Ionic
+@import "www/lib/ionic/scss/ionic";
+.bar {
+  .title {
+    margin-left: 0;
+    font-size: 16px;
+    right: 0 !important;
+  }
+  button:before {
+    font-size: 16px !important;
+  }
+}
+.expense {
+  padding: 30px 20px !important;
+  .footing {
+    padding-top: 20px;
+    .col {
+      font-size: 2.5em;
+      margin-bottom: 20px;
+    }
+    .sum {
+      text-align: right;
+    }
+  }
+  .item {
+    padding: 0;
+    margin-bottom: 10px;
+    font-size: 20px;
+    color: #fff;
+    background-color: #DA4337;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    div {
+      padding: 10px;
+    }
+    .icon {
+      display: inline-block;
+      width: 20px;
+      text-align: center;
+    }
+  }
+  .item-note {
+    color: #fff;
+    font-size: 20px;
+  }
+}
+.bar-footer {
+  height: 50px;
+  .row, .col {
+    padding: 0;
+  }
+  p {
+    margin-bottom: 0;
+  }
+  .percentage {
+    font-size: .5em;
+  }
+  .piggy {
+    .icon-pig:before {
+      font-size: 2.5em;
+      margin-top: -5px;
+    }
+    .percentage {
+      font-size: .5em;
+      margin-top: -10px;
+      margin-left: 8px;
+    }
+  }
+  .budget-wrap {
+    text-align: right;
+    letter-spacing: 1px;
+    .money {
+      font-size: 1em;
+    }
+    .desc {
+      font-size: .5em;
+    }
+  }
+  .budget-content {
+    float: right;
+  }
+  .budget-left, .budget-right {
+    float: left
+  }
+}
+.cost {
+  font-size: 3em;
+  text-align: right;
+}
+.tag-slider {
+  padding-bottom: 20px;
+  .row {
+    padding: 0;
+  }
+  .row + .row {
+    margin-top: 0;
+  }
+  .col {
+    padding: 0;
+    text-align: center;
+    a {
+      padding: 10px 0 5px;
+      color: #4D4D5D;
+      text-decoration: none;
+      display: block;
+      .icon {
+        display: block;
+        margin: 0 auto;
+        height: 30px;
+        font-size: 30px;
+      }
+      p {
+        font-size: 12px;
+        margin-bottom: 0;
+      }
+    }
+  }
+  .activated {
+    background: #DEDBBA;
+  }
+  .slider-pager {
+    bottom: 5px;
+    .slider-pager-page {
+      color: #656569;
+    }
+  }
+}
+.list .activated {
+  background: #DEDBBA;
+}
+.edit-page .list .item {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  .icon {
+    font-size: 14px;
+    color: #4D4D5D;
+  }
+  span,
+  p {
+    font-size: 12px;
+    color: #4D4D5D;
+    text-align: right;
+  }
+  .item-note {
+    width: 100%;
+  }
+}
+.scroll {
+  height: 100%;
+}
+.keyboard {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  background: #FCFAEA;
+  height: 60%;
+  max-height: 500px;
+  .col {
+    padding: 0;
+    height: 100%;
+  }
+  .num {
+    padding: 0;
+    height: 100%;
+  }
+  .button {
+    min-height: 20px;
+    max-height: 100px;
+    height: 100%;
+    margin: 0;
+  }
+  .num .button {
+    color: #6B6B75;
+  }
+  .controll .button {
+    max-height: 200px;
+  }
+  .button-clear.activated {
+    opacity: 1;
+    background-color: #DFDDCB;
+  }
+  .ac.activated {
+    opacity: 1;
+    background-color: #C03F39;
+  }
+  .button-green.activated {
+    opacity: 1;
+    background-color: #85AF32;
+  }
+  .divide {
+    color: #EF9F51;
+  }
+  .multiply {
+    color: #82A7E3;
+  }
+  .subtract {
+    color: #E6534B;
+  }
+  .add {
+    color: #9BCA3E;
+  }
+  .button-red {
+    color: #fff;
+    background: #E6534B;
+  }
+  .button-green {
+    color: #fff;
+    background: #9BCA3E;
+  }
+  .row {
+    padding: 0;
+  }
+  .row + .row {
+    margin-top: 0;
+  }
+}
+.description {
+  width: 100%;
+  height: 200px;
+  resize: none;
+  overflow: hidden;
+}
+.popup-container .popup {
+  max-width: 80%;
+  background-color: #EEEBD2;
+  .item {
+    padding: 0;
+    font-size: 12px;
+  }
+}
+.item-radio .item-content,
+.item-radio input:checked ~ .item-content {
+  background-color: #EEEBD2;
+}
+.popup-head {
+  padding: 10px 0;
+}
+.popup-title {
+  font-size: 12px;
+}
+.popup-body {
+  padding: 0;
+  overflow: hidden;
+}
+.popup-buttons {
+  padding: 0;
+  min-height: 42px;
+  .button {
+    font-size: 12px;
+    min-height: 42px;
+  }
+  .button.button-full {
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  .button-clear {
+    padding: 0;
+  }
+}
+.detail-page {
+  .item {
+    padding: 0 16px 0 54px;
+    height: 42px;
+    line-height: 42px;
+    overflow: hidden;
+    font-size: 12px;
+    color: #fff;
+    background-color: #e6534b;
+    border: 1px solid #e56962;
+    border-radius: 2px;
+    .icon {
+      font-size: 20px;
+    }
+    p,
+    span {
+      font-size: 12px;
+      color: #fff;
+    }
+    p {
+      line-height: 21px;
+      margin: 0;
+    }
+  }
+  .item-name {
+    background: #da473f;
+  }
+  .money {
+    font-size: 30px;
+  }
+  .button {
+    left: 5%;
+    width: 90%;
+    margin-top: 15px;
+    min-height: 30px;
+    line-height: normal;
+  }
+}
+.money {
+  font-family: "Microsoft YaHei";
+}
+.padding-vertical-20 {
+  padding-top: 20px;
+  padding-bottom: 20px;
+}
+.row-20 {
+  height: 20%;
+}
+.row-25 {
+  height: 25%;
+}
+.row-50 {
+  height: 50%;
+}
+.row-80 {
+  height: 80%;
+}
+.ovh {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
