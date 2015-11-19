@@ -2,10 +2,10 @@ angular
   .module('starter.services', [])
 
 .factory('ExpenseService', ExpenseService)
-.factory('TagService', TagService)
-.factory('AcountService', AcountService)
-.factory('regularExpensesService', regularExpensesService)
-.service('SharedDataService', SharedDataService);
+  .factory('TagService', TagService)
+  .factory('AcountService', AcountService)
+  .factory('regularExpensesService', regularExpensesService)
+  .factory('SharedDataService', SharedDataService);
 
 ExpenseService.$inject = ['$q', '$rootScope'];
 
@@ -29,8 +29,8 @@ function ExpenseService($q, $rootScope) {
   }
 
   function destroyexpense() {
-    _db.destroy(function(err, response) {
-      if(err) {
+    _db.destroy(function (err, response) {
+      if (err) {
         return console.log(err);
       }
     });
@@ -194,44 +194,77 @@ function TagService() {
       ]
     ];
 
+  function getTagList() {
+    return tag_list;
+  }
+
   return {
-    tag_list: tag_list
+    getTagList: getTagList
   };
 }
 
 function AcountService() {
   var accounts = ['现金', '银行卡'];
 
+  function getAccounts() {
+    return accounts;
+  }
+
   return {
-    accounts: accounts
+    getAccounts: getAccounts
   };
 }
 
 function regularExpensesService() {
   var regularExpenses = ['无', '每日', '每周', '每月'];
 
+  function getRegularExpenses() {
+    return regularExpenses;
+  }
+
   return {
-    regularExpenses: regularExpenses
+    getRegularExpenses: getRegularExpenses
   };
 }
 
 SharedDataService.$inject = ['$rootScope'];
 
 function SharedDataService($rootScope) {
-  var service = {
-    expense: {
-      description: ''
-    },
-    action: {},
-    getExpense: getExpense,
-    setExpense: setExpense,
-    getAction: getAction,
-    setAction: setAction,
-    getDescription: getDescription,
-    setDescription: setDescription
+  var service = {};
+  service.expense = {
+    description: ''
   };
+  service.budget = 3000;
+  service.remainingBudget = 0;
+  service.getBudget = getBudget;
+  service.setBudget = setBudget;
+  service.getRemainingBudget = getRemainingBudget;
+  service.setRemainingBudget = setRemainingBudget;
+  service.getExpense = getExpense;
+  service.setExpense = setExpense;
+  service.getAction = getAction;
+  service.setAction = setAction;
+  service.getDescription = getDescription;
+  service.setDescription = setDescription;
+
 
   return service;
+
+  function getBudget() {
+    return this.budget;
+  }
+
+  function setBudget(budget) {
+    this.budget = budget;
+  }
+
+  function getRemainingBudget() {
+    return this.remainingBudget;
+  }
+
+  function setRemainingBudget(remain) {
+    this.remainingBudget = remain;
+  }
 
   function getExpense() {
     return this.expense;
@@ -242,7 +275,7 @@ function SharedDataService($rootScope) {
   }
 
   function getAction() {
-    return this.action;
+    return this.action || {};
   }
 
   function setAction(action) {

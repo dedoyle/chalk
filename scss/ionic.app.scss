@@ -22,6 +22,7 @@ $ionicons-font-path: "../lib/ionic/fonts" !default;
 $assertive: #EA5C51;
 $royal: #555577;
 $stable: #EEEBD2;
+$energized: #f08850;
 // Include all of Ionic
 @import "www/lib/ionic/scss/ionic";
 .bar {
@@ -47,20 +48,19 @@ $stable: #EEEBD2;
     }
   }
   .item {
-    padding: 0;
+//    padding: 0;
     margin-bottom: 10px;
-    font-size: 20px;
+//    font-size: 20px;
     color: #fff;
     background-color: #DA4337;
     border: 1px solid transparent;
-    border-radius: 2px;
+//    border-radius: 2px;
     div {
       padding: 10px;
     }
     .icon {
-      display: inline-block;
-      width: 20px;
-      text-align: center;
+//      padding: 0 2px;
+//      text-align: center;
     }
   }
   .item-note {
@@ -134,7 +134,7 @@ $stable: #EEEBD2;
         font-size: 30px;
       }
       p {
-        font-size: 12px;
+        font-size: 14px;
         margin-bottom: 0;
       }
     }
@@ -153,10 +153,10 @@ $stable: #EEEBD2;
   background: #DEDBBA;
 }
 .edit-page .list .item {
-  padding-top: 10px;
-  padding-bottom: 10px;
+//  padding-top: 10px;
+//  padding-bottom: 10px;
   .icon {
-    font-size: 14px;
+//    font-size: 14px;
     color: #4D4D5D;
   }
   span,
@@ -250,8 +250,8 @@ $stable: #EEEBD2;
   max-width: 80%;
   background-color: #EEEBD2;
   .item {
-    padding: 0;
-    font-size: 12px;
+//    padding: 0;
+//    font-size: 12px;
   }
 }
 .item-radio .item-content,
@@ -285,17 +285,17 @@ $stable: #EEEBD2;
 }
 .detail-page {
   .item {
-    padding: 0 16px 0 54px;
-    height: 42px;
-    line-height: 42px;
+//    padding: 0 16px 0 54px;
+//    height: 42px;
+//    line-height: 42px;
     overflow: hidden;
-    font-size: 12px;
+//    font-size: 12px;
     color: #fff;
     background-color: #e6534b;
     border: 1px solid #e56962;
-    border-radius: 2px;
+//    border-radius: 2px;
     .icon {
-      font-size: 20px;
+//      font-size: 20px;
     }
     p,
     span {
@@ -323,6 +323,14 @@ $stable: #EEEBD2;
 }
 .money {
   font-family: "Microsoft YaHei";
+}
+.setting-list {
+  .item {
+//    padding: 10px 0;
+    .icon {
+//      padding: 10px;
+    }
+  }
 }
 .padding-vertical-20 {
   padding-top: 20px;

@@ -8,7 +8,11 @@ angular.module('starter.controllers', [])
 
 .controller('DetailController', DetailController)
 
-.controller('DescriptionController', DescriptionController);
+.controller('DescriptionController', DescriptionController)
+
+.controller('SettingController', SettingController)
+
+.controller('SetBudgetController', SetBudgetController);
 
 AppCtrl.$inject = ['$scope', '$ionicModal', '$timeout'];
 
@@ -60,8 +64,7 @@ function AppCtrl($scope, $ionicModal, $timeout) {
 ExpenseController.$inject = ['$scope', '$rootScope', 'ExpenseService', 'SharedDataService', '$state', '$ionicPlatform', '$ionicPopup', '$filter'];
 
 function ExpenseController($scope, $rootScope, ExpenseService, SharedDataService, $state, $ionicPlatform, $ionicPopup, $filter) {
-  var i, len,
-      vm = this;
+  var vm = this;
 
   $ionicPlatform.ready(function () {
     ExpenseService.initDB();
@@ -72,9 +75,9 @@ function ExpenseController($scope, $rootScope, ExpenseService, SharedDataService
 
   });
 
-  vm.budget = 2000;
-  vm.remainingBudget = 1000;
-  vm.percentage = (vm.remainingBudget / vm.budget) * 100;
+  vm.budget = SharedDataService.getBudget();
+  vm.remainingBudget = SharedDataService.getRemainingBudget();
+  vm.percentage = vm.budget !== 0 ? (vm.remainingBudget / vm.budget) * 100 : 0;
 
   vm.goToAddExpense = goToAddExpense;
 
@@ -82,7 +85,7 @@ function ExpenseController($scope, $rootScope, ExpenseService, SharedDataService
 
   vm.cleanup = cleanup;
 
-  function cleanup(){
+  function cleanup() {
     ExpenseService.destroyexpense();
   }
 
@@ -106,7 +109,7 @@ EditController.$inject = ['$scope', '$rootScope', '$state', '$ionicPopup', 'Expe
 function EditController($scope, $rootScope, $state, $ionicPopup, ExpenseService, SharedDataService, TagService, AcountService, regularExpensesService, $ionicHistory) {
 
   var vm = this,
-      now = new Date();
+    now = new Date();
 
   vm.action = SharedDataService.getAction();
 
@@ -122,13 +125,12 @@ function EditController($scope, $rootScope, $state, $ionicPopup, ExpenseService,
     };
   } else {
     vm.expense = SharedDataService.getExpense();
-    console.log(vm.expense);
   }
 
   vm.showkeyboard = true;
-  vm.tag_list = TagService.tag_list;
-  vm.accounts = AcountService.accounts;
-  vm.regularExpenses = regularExpensesService.regularExpenses;
+  vm.tag_list = TagService.getTagList();
+  vm.accounts = AcountService.getAccounts();
+  vm.regularExpenses = regularExpensesService.getRegularExpenses();
 
   $rootScope.$on('description.changed', updateDescription);
 
@@ -202,7 +204,7 @@ function EditController($scope, $rootScope, $state, $ionicPopup, ExpenseService,
 DescriptionController.$inject = ['$scope', '$rootScope', '$state', 'SharedDataService'];
 
 function DescriptionController($scope, $rootScope, $state, SharedDataService) {
-  var vm =this;
+  var vm = this;
 
   vm.description = SharedDataService.getDescription();
 
@@ -244,4 +246,32 @@ function DetailController($scope, $state, SharedDataService, ExpenseService) {
     ExpenseService.deleteExpense(item);
     $state.go('app.expense');
   }
+}
+
+SettingController.$inject = ['$scope', '$state'];
+
+function SettingController($scope, $state) {
+  var vm = this;
+
+  vm.gotoSetBudget = gotoSetBudget;
+
+  function gotoSetBudget() {
+    $state.go('app.set-budget');
+  }
+}
+SetBudgetController.$inject = ['$scope', '$state'];
+function SetBudgetController($scope, $state) {
+  var vm = this,
+      i = 1;
+
+  vm.money = 0;
+  vm.days = [];
+
+  for(; i < 31; i++) {
+    vm.days.push({number: i});
+  }
+
+  vm.data = {
+    selectedDay: vm.days[0]
+  };
 }

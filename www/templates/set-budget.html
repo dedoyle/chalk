@@ -1,0 +1,18 @@
+<ion-view view-title="预算编列" class="setbudget">
+  <ion-nav-buttons side="right">
+    <button class="button button-clear">保存</button>
+  </ion-nav-buttons>
+  <ion-content>
+    <div class="cost energized-bg light row padding-vertical-20">
+      <div class="col"><i class="icon ion-social-yen"></i><span>{{setbudget.money}}</span></div>
+    </div>
+    <ion-list>
+      <ion-item>
+        <i class="icon ion-calendar"></i>预算周期
+      </ion-item>
+      <ion-item>
+        <morph-carousel data-items="setbudget.days" on-selected="setbudget.data.selectedDay" identifier="modal-carousel" show-value="number"></morph-carousel>
+      </ion-item>
+    </ion-list>
+  </ion-content>
+</ion-view>

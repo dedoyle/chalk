@@ -4,7 +4,7 @@
 // 'starter' is the name of this angular module example (also set in a <body> attribute in index.html)
 // the 2nd parameter is an array of 'requires'
 // 'starter.controllers' is found in controllers.js
-angular.module('starter', ['ionic', 'starter.services', 'starter.controllers', 'starter.directives', 'starter.filters'])
+angular.module('starter', ['ionic', 'starter.services', 'starter.controllers', 'starter.directives', 'starter.filters', 'morphCarousel'])
 
 .run(function($ionicPlatform) {
   $ionicPlatform.ready(function() {
@@ -93,7 +93,17 @@ angular.module('starter', ['ionic', 'starter.services', 'starter.controllers', '
       url: '/settings',
       views: {
         'menuContent': {
-          templateUrl: 'templates/settings.html'
+          templateUrl: 'templates/settings.html',
+          controller: 'SettingController as settings'
+        }
+      }
+    })
+    .state('app.set-budget', {
+      url: '/set-budget',
+      views: {
+        'menuContent': {
+          templateUrl: 'templates/set-budget.html',
+          controller: 'SetBudgetController as setbudget'
         }
       }
     });
