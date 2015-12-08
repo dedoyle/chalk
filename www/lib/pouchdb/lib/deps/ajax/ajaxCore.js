@@ -1,16 +1,16 @@
 "use strict";
 
 var request = require('request');
-
+var extend = require('js-extend').extend;
 var errors = require('./../errors');
-var utils = require('../../utils');
+var clone = require('../../deps/clone');
 var applyTypeToBuffer = require('./applyTypeToBuffer');
 var defaultBody = require('./defaultBody');
 var explainCors = require('./explainCors');
 
 function ajax(options, callback) {
 
-  options = utils.clone(options);
+  options = clone(options);
 
   var defaultOptions = {
     method : "GET",
@@ -21,14 +21,10 @@ function ajax(options, callback) {
     cache: false
   };
 
-  options = utils.extend(defaultOptions, options);
-
+  options = extend(defaultOptions, options);
 
   function onSuccess(obj, resp, cb) {
-    if (!options.binary && !options.json && options.processData &&
-      typeof obj !== 'string') {
-      obj = JSON.stringify(obj);
-    } else if (!options.binary && options.json && typeof obj === 'string') {
+    if (!options.binary && options.json && typeof obj === 'string') {
       try {
         obj = JSON.parse(obj);
       } catch (e) {
@@ -58,6 +54,8 @@ function ajax(options, callback) {
       err2.status = err.status;
       return cb(err2);
     }
+    // We always get code && status in node
+    /* istanbul ignore next */
     try {
       errParsed = JSON.parse(err.responseText);
       //would prefer not to have a try/catch clause
@@ -65,6 +63,7 @@ function ajax(options, callback) {
     } catch (e) {
       errObj = errors.generateErrorFromResponse(err);
     }
+    /* istanbul ignore next */
     cb(errObj);
   }
 
@@ -88,10 +87,12 @@ function ajax(options, callback) {
 
   return request(options, function (err, response, body) {
     if (err) {
+      // Node request only ever fires error or response, never both
+      /* istanbul ignore if */
       if (response) {
         var origin = (typeof document !== 'undefined') &&
           document.location.origin;
-        var isCrossOrigin = origin && options.url.indexOf(origin) === 0;
+        var isCrossOrigin = origin && options.url.indexOf(origin) !== 0;
         if (isCrossOrigin && response.statusCode === 0) {
           explainCors();
         }

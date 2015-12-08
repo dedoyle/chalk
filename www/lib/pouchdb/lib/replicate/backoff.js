@@ -3,11 +3,8 @@
 var STARTING_BACK_OFF = 0;
 
 function randomNumber(min, max) {
-  min = parseInt(min, 10);
+  min = parseInt(min, 10) || 0;
   max = parseInt(max, 10);
-  if (min !== min) {
-    min = 0;
-  }
   if (max !== max || max <= min) {
     max = (min || 1) << 1; //doubling
   } else {
@@ -37,7 +34,7 @@ function backOff(opts, returnValue, error, callback) {
     opts.back_off_function = defaultBackOff;
   }
   returnValue.emit('requestError', error);
-  if (returnValue.state === 'active') {
+  if (returnValue.state === 'active' || returnValue.state === 'pending') {
     returnValue.emit('paused', error);
     returnValue.state = 'stopped';
     returnValue.once('active', function () {

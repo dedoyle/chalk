@@ -2,11 +2,12 @@
 "use strict";
 
 var debug = require('debug');
-
+var inherits = require('inherits');
 var Adapter = require('./adapter');
-var utils = require('./utils');
 var TaskQueue = require('./taskqueue');
-var Promise = utils.Promise;
+var isCordova = require('./deps/isCordova');
+var Promise = require('./deps/promise');
+var clone = require('./deps/clone');
 
 function defaultCallback(err) {
   /* istanbul ignore next */
@@ -50,7 +51,7 @@ function prepareForDestruction(self, opts) {
   destructionListeners.get(name).push(onConstructorDestroyed);
 }
 
-utils.inherits(PouchDB, Adapter);
+inherits(PouchDB, Adapter);
 function PouchDB(name, opts, callback) {
 
   if (!(this instanceof PouchDB)) {
@@ -70,7 +71,7 @@ function PouchDB(name, opts, callback) {
     callback = defaultCallback;
   }
   name = name || opts.name;
-  opts = utils.clone(opts);
+  opts = clone(opts);
   // if name was specified via opts, ignore for the sake of dependentDbs
   delete opts.name;
   this.__opts = opts;
@@ -81,6 +82,7 @@ function PouchDB(name, opts, callback) {
   self.taskqueue = new TaskQueue();
   var promise = new Promise(function (fulfill, reject) {
     callback = function (err, resp) {
+      /* istanbul ignore if */
       if (err) {
         return reject(err);
       }
@@ -88,7 +90,7 @@ function PouchDB(name, opts, callback) {
       fulfill(resp);
     };
 
-    opts = utils.clone(opts);
+    opts = clone(opts);
     var originalName = opts.name || name;
     var backend, error;
     (function () {
@@ -119,6 +121,7 @@ function PouchDB(name, opts, callback) {
           throw error;
         }
 
+        /* istanbul ignore if */
         if (!PouchDB.adapters[opts.adapter].valid()) {
           error = new Error('Invalid Adapter');
           error.code = 404;
@@ -151,6 +154,7 @@ function PouchDB(name, opts, callback) {
     self.replicate.sync = self.sync;
 
     PouchDB.adapters[opts.adapter].call(self, opts, function (err) {
+      /* istanbul ignore if */
       if (err) {
         self.taskqueue.fail(err);
         callback(err);
@@ -165,7 +169,7 @@ function PouchDB(name, opts, callback) {
     });
 
     /* istanbul ignore next */
-    if (utils.isCordova()) {
+    if (isCordova()) {
       //to inform websql adapter that we can use api
       cordova.fireWindowEvent(opts.name + "_pouch", {});
     }

@@ -1,7 +1,8 @@
 angular
   .module('starter.filters', [])
 
-.filter('sumOfItems', sumOfItems);
+.filter('sumOfItems', sumOfItems)
+.filter('percentage', percentage);
 
 function sumOfItems() {
   return function(data, key) {
@@ -16,5 +17,13 @@ function sumOfItems() {
     }
 
     return sum;
+  };
+}
+
+percentage.$inject = ['$filter'];
+
+function percentage($filter) {
+  return function (input) {
+    return Math.floor(input * 100) + '%';
   };
 }

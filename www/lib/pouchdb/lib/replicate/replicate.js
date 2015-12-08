@@ -1,6 +1,9 @@
 'use strict';
 
-var utils = require('./../utils');
+var clone = require('../deps/clone');
+var Promise = require('../deps/promise');
+var uuid = require('../deps/uuid');
+var filterChange = require('../deps/filterChange');
 var Checkpointer = require('./checkpointer');
 var backOff = require('./backoff');
 var generateReplicationId = require('./generateReplicationId');
@@ -23,15 +26,12 @@ function replicate(src, target, opts, returnValue, result) {
   var batches_limit = opts.batches_limit || 10;
   var changesPending = false;     // true while src.changes is running
   var doc_ids = opts.doc_ids;
-  var state = {
-    cancelled: false
-  };
   var repId;
   var checkpointer;
   var allErrors = [];
   var changedDocs = [];
   // Like couchdb, every replication gets a unique session id
-  var session = utils.uuid();
+  var session = uuid();
 
   result = result || {
     ok: true,
@@ -47,11 +47,11 @@ function replicate(src, target, opts, returnValue, result) {
 
   function initCheckpointer() {
     if (checkpointer) {
-      return utils.Promise.resolve();
+      return Promise.resolve();
     }
     return generateReplicationId(src, target, opts).then(function (res) {
       repId = res;
-      checkpointer = new Checkpointer(src, target, repId, state);
+      checkpointer = new Checkpointer(src, target, repId, returnValue);
     });
   }
 
@@ -61,7 +61,7 @@ function replicate(src, target, opts, returnValue, result) {
     }
     var docs = currentBatch.docs;
     return target.bulkDocs({docs: docs, new_edits: false}).then(function (res) {
-      if (state.cancelled) {
+      if (returnValue.cancelled) {
         completeReplication();
         throw new Error('cancelled');
       }
@@ -84,7 +84,7 @@ function replicate(src, target, opts, returnValue, result) {
       docs.forEach(function(doc) {
         var error = errorsById[doc._id];
         if (error) {
-          returnValue.emit('denied', utils.clone(error));
+          returnValue.emit('denied', clone(error));
         } else {
           changedDocs.push(doc);
         }
@@ -103,18 +103,20 @@ function replicate(src, target, opts, returnValue, result) {
   }
 
   function finishBatch() {
+    result.last_seq = last_seq = currentBatch.seq;
+    var outResult = clone(result);
+    if (changedDocs.length) {
+      outResult.docs = changedDocs;
+      returnValue.emit('change', outResult);
+    }
     writingCheckpoint = true;
     return checkpointer.writeCheckpoint(currentBatch.seq,
         session).then(function () {
       writingCheckpoint = false;
-      if (state.cancelled) {
+      if (returnValue.cancelled) {
         completeReplication();
         throw new Error('cancelled');
       }
-      result.last_seq = last_seq = currentBatch.seq;
-      var outResult = utils.clone(result);
-      outResult.docs = changedDocs;
-      returnValue.emit('change', outResult);
       currentBatch = undefined;
       getChanges();
     }).catch(function (err) {
@@ -128,6 +130,7 @@ function replicate(src, target, opts, returnValue, result) {
     var diff = {};
     currentBatch.changes.forEach(function (change) {
       // Couchbase Sync Gateway emits these, but we can ignore them
+      /* istanbul ignore if */
       if (change.id === "_user/") {
         return;
       }
@@ -136,7 +139,7 @@ function replicate(src, target, opts, returnValue, result) {
       });
     });
     return target.revsDiff(diff).then(function (diffs) {
-      if (state.cancelled) {
+      if (returnValue.cancelled) {
         completeReplication();
         throw new Error('cancelled');
       }
@@ -146,7 +149,7 @@ function replicate(src, target, opts, returnValue, result) {
   }
 
   function getBatchDocs() {
-    return getDocs(src, currentBatch.diffs, state).then(function (docs) {
+    return getDocs(src, currentBatch.diffs, returnValue).then(function (docs) {
       docs.forEach(function (doc) {
         delete currentBatch.diffs[doc._id];
         result.docs_read++;
@@ -156,7 +159,7 @@ function replicate(src, target, opts, returnValue, result) {
   }
 
   function startNextBatch() {
-    if (state.cancelled || currentBatch) {
+    if (returnValue.cancelled || currentBatch) {
       return;
     }
     if (batches.length === 0) {
@@ -233,7 +236,7 @@ function replicate(src, target, opts, returnValue, result) {
     if (replicationCompleted) {
       return;
     }
-    if (state.cancelled) {
+    if (returnValue.cancelled) {
       result.status = 'cancelled';
       if (writingCheckpoint) {
         return;
@@ -242,7 +245,7 @@ function replicate(src, target, opts, returnValue, result) {
     result.status = result.status || 'complete';
     result.end_time = new Date();
     result.last_seq = last_seq;
-    replicationCompleted = state.cancelled = true;
+    replicationCompleted = true;
     var non403s = allErrors.filter(function (error) {
       return error.name !== 'unauthorized' && error.name !== 'forbidden';
     });
@@ -264,10 +267,10 @@ function replicate(src, target, opts, returnValue, result) {
 
 
   function onChange(change) {
-    if (state.cancelled) {
+    if (returnValue.cancelled) {
       return completeReplication();
     }
-    var filter = utils.filterChange(opts)(change);
+    var filter = filterChange(opts)(change);
     if (!filter) {
       return;
     }
@@ -279,7 +282,7 @@ function replicate(src, target, opts, returnValue, result) {
 
   function onChangesComplete(changes) {
     changesPending = false;
-    if (state.cancelled) {
+    if (returnValue.cancelled) {
       return completeReplication();
     }
 
@@ -302,7 +305,8 @@ function replicate(src, target, opts, returnValue, result) {
 
   function onChangesError(err) {
     changesPending = false;
-    if (state.cancelled) {
+    /* istanbul ignore if */
+    if (returnValue.cancelled) {
       return completeReplication();
     }
     abortReplication('changes rejected', err);
@@ -347,7 +351,7 @@ function replicate(src, target, opts, returnValue, result) {
 
   function startChanges() {
     initCheckpointer().then(function () {
-      if (state.cancelled) {
+      if (returnValue.cancelled) {
         completeReplication();
         return;
       }
@@ -359,7 +363,7 @@ function replicate(src, target, opts, returnValue, result) {
           batch_size: batch_size,
           style: 'all_docs',
           doc_ids: doc_ids,
-          returnDocs: true // required so we know when we're done
+          return_docs: true // required so we know when we're done
         };
         if (opts.filter) {
           if (typeof opts.filter !== 'string') {
@@ -368,6 +372,9 @@ function replicate(src, target, opts, returnValue, result) {
           } else { // ddoc filter
             changesOpts.filter = opts.filter;
           }
+        }
+        if (opts.heartbeat) {
+          changesOpts.heartbeat = opts.heartbeat;
         }
         if (opts.query_params) {
           changesOpts.query_params = opts.query_params;
@@ -382,6 +389,7 @@ function replicate(src, target, opts, returnValue, result) {
     });
   }
 
+  /* istanbul ignore if */
   if (returnValue.cancelled) { // cancelled immediately
     completeReplication();
     return;
@@ -407,13 +415,14 @@ function replicate(src, target, opts, returnValue, result) {
       return checkpointer.writeCheckpoint(opts.since, session);
     }).then(function () {
       writingCheckpoint = false;
-      if (state.cancelled) {
+      /* istanbul ignore if */
+      if (returnValue.cancelled) {
         completeReplication();
         return;
       }
       last_seq = opts.since;
       startChanges();
-    }).catch(function (err) {
+    }).catch(/* istanbul ignore next */ function (err) {
       writingCheckpoint = false;
       abortReplication('writeCheckpoint completed with error', err);
       throw err;

@@ -1,39 +1,43 @@
-<ion-view class="expense" view-title="{{ today }}">
+<ion-view class="expense" view-title="{{ expense.currDay }}">
   <ion-nav-buttons side="right">
     <button class="button button-icon icon ion-calendar" data-ng-click="expense.cleanup()"></button>
     <button data-ng-click="expense.goToAddExpense()" class="button button-icon icon ion-plus"></button>
   </ion-nav-buttons>
-  <ion-content class="assertive-bg light">
-    <div class="footing row">
-      <div class="col">CNY</div>
-      <div class="col sum">{{ expense.items | sumOfItems:'money' }}</div>
-    </div>
-    <ion-list>
-      <ion-item data-ng-repeat="item in expense.items | orderBy: 'date':false">
-        <div data-ng-click="expense.goToDetail(item)">
-          <i class="icon {{ item.icon }}"></i>
-          <span>{{ item.name }}</span>
-          <span class="item-note">{{ item.money }}</span>
-        </div>
-      </ion-item>
-    </ion-list>
+  <ion-content class="assertive-bg light has-footer">
+    <de-swipe-right currday="expense.currDay" lists="expense.lists" index="{{expense.currIndex}}">
+      <ion-slide-box show-pager="false" active-slide="expense.currIndex" on-slide-changed="expense.slideHasChanged(index)" class="swipe-box">
+        <ion-slide data-ng-repeat="list in expense.lists">
+          <div class="show-box">
+            <div class="l">CNY</div>
+            <div class="r">{{ list.items | sumOfItems:'money' }}</div>
+          </div>
+          <ion-list class="list-primary">
+            <ion-item data-ng-repeat="item in list.items | orderBy: 'date':false track by item._id">
+              <div data-ng-click="expense.goToDetail(item)">
+                <i class="icon" data-once-class="item.icon"></i>
+                <span data-once-text="item.name"></span>
+                <span class="item-note" data-once-text="item.money"></span>
+              </div>
+            </ion-item>
+          </ion-list>
+        </ion-slide>
+      </ion-slide-box>
+    </de-swipe-right>
   </ion-content>
-  <ion-footer-bar class="bar-stable row">
-    <div class="piggy col-25">
+  <div class="footer-box">
+    <div class="piggy l">
       <i class="icon-pig"></i>
-      <p class="percentage">{{ expense.percentage }}%</p>
+      <p class="percentage">{{ expense.percentage | percentage }}</p>
     </div>
-    <div class="budget-wrap col-75">
-      <div class="budget-content">
-        <div class="budget-left">
-          <p class="money">￥{{ expense.remainingBudget }}</p>
-          <p class="desc">剩余预算</p>
-        </div>
-        <div class="budget-right">
-          <p class="money">/￥{{ expense.budget }}</p>
-          <p class="desc">预算总额</p>
-        </div>
+    <div class="budget-wrap r">
+      <div class="l">
+        <p class="money">￥{{ expense.budget.remainingBudget }}</p>
+        <p class="desc">剩余预算</p>
+      </div>
+      <div class="r">
+        <p class="money">/￥{{ expense.budget.money }}</p>
+        <p class="desc">预算总额</p>
       </div>
     </div>
-  </ion-footer-bar>
+  </div>
 </ion-view>

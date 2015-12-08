@@ -1,8 +1,7 @@
 'use strict';
 
-var utils = require('../../utils');
 var errors = require('../../deps/errors');
-
+var collections = require('pouchdb-collections');
 var websqlConstants = require('./constants');
 
 var BY_SEQ_STORE = websqlConstants.BY_SEQ_STORE;
@@ -110,7 +109,7 @@ function compactRevs(revs, docId, tx) {
           digestsToCheck.map(function () { return '?'; }).join(',') +
           ')';
         tx.executeSql(sql, digestsToCheck, function (tx, res) {
-          var nonOrphanedDigests = new utils.Set();
+          var nonOrphanedDigests = new collections.Set();
           for (var i = 0; i < res.rows.length; i++) {
             nonOrphanedDigests.add(res.rows.item(i).digest);
           }
@@ -147,8 +146,9 @@ function compactRevs(revs, docId, tx) {
   });
 }
 
-function unknownError(callback) {
+function websqlError(callback) {
   return function (event) {
+    console.error('WebSQL threw an error', event);
     // event may actually be a SQLError object, so report is as such
     var errorNameMatch = event && event.constructor.toString()
         .match(/function ([^\(]+)/);
@@ -191,18 +191,30 @@ function createOpenDBFunction() {
   }
 }
 
+function openDBSafely(openDBFunction, opts) {
+  try {
+    return {
+      db: openDBFunction(opts)
+    };
+  } catch (err) {
+    return {
+      error: err
+    };
+  }
+}
+
 var cachedDatabases = {};
 
 function openDB(opts) {
-
-  var openDBFunction = createOpenDBFunction();
-
-  var db = cachedDatabases[opts.name];
-  if (!db) {
-    db = cachedDatabases[opts.name] = openDBFunction(opts);
-    db._sqlitePlugin = typeof sqlitePlugin !== 'undefined';
+  var cachedResult = cachedDatabases[opts.name];
+  if (!cachedResult) {
+    var openDBFun = createOpenDBFunction();
+    cachedResult = cachedDatabases[opts.name] = openDBSafely(openDBFun, opts);
+    if (cachedResult.db) {
+      cachedResult.db._sqlitePlugin = typeof sqlitePlugin !== 'undefined';
+    }
   }
-  return db;
+  return cachedResult;
 }
 
 function valid() {
@@ -221,7 +233,7 @@ module.exports = {
   qMarks: qMarks,
   select: select,
   compactRevs: compactRevs,
-  unknownError: unknownError,
+  websqlError: websqlError,
   getSize: getSize,
   openDB: openDB,
   valid: valid

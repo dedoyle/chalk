@@ -1,21 +1,32 @@
 "use strict";
 
-var utils = require('./utils');
+var extend = require('js-extend').extend;
+var Promise = require('./deps/promise');
+var pick = require('./deps/pick');
+var collections = require('pouchdb-collections');
+var inherits = require('inherits');
+var getArguments = require('argsarray');
+var adapterFun = require('./deps/adapterFun');
 var errors = require('./deps/errors');
 var EventEmitter = require('events').EventEmitter;
 var upsert = require('./deps/upsert');
 var Changes = require('./changes');
-var Promise = utils.Promise;
+var bulkGetShim = require('./deps/bulkGetShim');
 var isDeleted = require('./deps/docs/isDeleted');
 var isLocalId = require('./deps/docs/isLocalId');
 var traverseRevTree = require('./deps/merge/traverseRevTree');
 var collectLeaves = require('./deps/merge/collectLeaves');
 var rootToLeaf = require('./deps/merge/rootToLeaf');
 var collectConflicts = require('./deps/merge/collectConflicts');
+var parseDoc = require('./deps/docs/parseDoc');
 
 /*
  * A generic pouch adapter
  */
+
+function compare(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
 
 // returns first element of arr satisfying callback predicate
 function arrayFirst(arr, callback) {
@@ -24,7 +35,6 @@ function arrayFirst(arr, callback) {
       return arr[i];
     }
   }
-  return false;
 }
 
 // Wrapper for functions that call the bulkdocs api with a single doc,
@@ -50,7 +60,7 @@ function cleanDocs(docs) {
       var atts = Object.keys(doc._attachments);
       for (var j = 0; j < atts.length; j++) {
         var att = atts[j];
-        doc._attachments[att] = utils.pick(doc._attachments[att],
+        doc._attachments[att] = pick(doc._attachments[att],
           ['data', 'digest', 'content_type', 'length', 'revpos', 'stub']);
       }
     }
@@ -59,13 +69,13 @@ function cleanDocs(docs) {
 
 // compare two docs, first by _id then by _rev
 function compareByIdThenRev(a, b) {
-  var idCompare = utils.compare(a._id, b._id);
+  var idCompare = compare(a._id, b._id);
   if (idCompare !== 0) {
     return idCompare;
   }
   var aStart = a._revisions ? a._revisions.start : 0;
   var bStart = b._revisions ? b._revisions.start : 0;
-  return utils.compare(aStart, bStart);
+  return compare(aStart, bStart);
 }
 
 // for every node in a revision tree computes its distance from the closest
@@ -109,12 +119,13 @@ function allDocsKeysQuery(api, opts, callback) {
     offset: opts.skip
   };
   return Promise.all(keys.map(function (key) {
-    var subOpts = utils.extend({key: key, deleted: 'ok'}, opts);
+    var subOpts = extend({key: key, deleted: 'ok'}, opts);
     ['limit', 'skip', 'keys'].forEach(function (optKey) {
       delete subOpts[optKey];
     });
     return new Promise(function (resolve, reject) {
       api._allDocs(subOpts, function (err, res) {
+        /* istanbul ignore if */
         if (err) {
           return reject(err);
         }
@@ -141,6 +152,7 @@ function doNextCompaction(self) {
       opts.last_seq = doc.last_seq;
     }
     self._compact(opts, function (err, res) {
+      /* istanbul ignore if */
       if (err) {
         callback(err);
       } else {
@@ -164,7 +176,7 @@ function attachmentNameError(name) {
   return false;
 }
 
-utils.inherits(AbstractPouchDB, EventEmitter);
+inherits(AbstractPouchDB, EventEmitter);
 module.exports = AbstractPouchDB;
 
 function AbstractPouchDB() {
@@ -172,7 +184,7 @@ function AbstractPouchDB() {
 }
 
 AbstractPouchDB.prototype.post =
-  utils.adapterFun('post', function (doc, opts, callback) {
+  adapterFun('post', function (doc, opts, callback) {
   if (typeof opts === 'function') {
     callback = opts;
     opts = {};
@@ -184,7 +196,7 @@ AbstractPouchDB.prototype.post =
 });
 
 AbstractPouchDB.prototype.put =
-  utils.adapterFun('put', utils.getArguments(function (args) {
+  adapterFun('put', getArguments(function (args) {
   var temp, temptype, opts, callback;
   var doc = args.shift();
   var id = '_id' in doc;
@@ -192,7 +204,6 @@ AbstractPouchDB.prototype.put =
     callback = args.pop();
     return callback(errors.error(errors.NOT_AN_OBJECT));
   }
-  doc = utils.clone(doc);
   while (true) {
     temp = args.shift();
     temptype = typeof temp;
@@ -211,10 +222,7 @@ AbstractPouchDB.prototype.put =
     }
   }
   opts = opts || {};
-  var error = utils.invalidIdError(doc._id);
-  if (error) {
-    return callback(error);
-  }
+  parseDoc.invalidIdError(doc._id);
   if (isLocalId(doc._id) && typeof this._putLocal === 'function') {
     if (doc._deleted) {
       return this._removeLocal(doc, callback);
@@ -226,7 +234,7 @@ AbstractPouchDB.prototype.put =
 }));
 
 AbstractPouchDB.prototype.putAttachment =
-  utils.adapterFun('putAttachment', function (docId, attachmentId, rev,
+  adapterFun('putAttachment', function (docId, attachmentId, rev,
                                               blob, type, callback) {
   var api = this;
   if (typeof type === 'function') {
@@ -235,6 +243,8 @@ AbstractPouchDB.prototype.putAttachment =
     blob = rev;
     rev = null;
   }
+  // Lets fix in https://github.com/pouchdb/pouchdb/issues/3267
+  /* istanbul ignore if */
   if (typeof type === 'undefined') {
     type = blob;
     blob = rev;
@@ -258,6 +268,7 @@ AbstractPouchDB.prototype.putAttachment =
     return createAttachment(doc);
   }, function (err) {
      // create new doc
+    /* istanbul ignore else */
     if (err.reason === errors.MISSING_DOC.message) {
       return createAttachment({_id: docId});
     } else {
@@ -267,10 +278,11 @@ AbstractPouchDB.prototype.putAttachment =
 });
 
 AbstractPouchDB.prototype.removeAttachment =
-  utils.adapterFun('removeAttachment', function (docId, attachmentId, rev,
+  adapterFun('removeAttachment', function (docId, attachmentId, rev,
                                                  callback) {
   var self = this;
   self.get(docId, function (err, obj) {
+    /* istanbul ignore if */
     if (err) {
       callback(err);
       return;
@@ -279,6 +291,7 @@ AbstractPouchDB.prototype.removeAttachment =
       callback(errors.error(errors.REV_CONFLICT));
       return;
     }
+    /* istanbul ignore if */
     if (!obj._attachments) {
       return callback();
     }
@@ -291,7 +304,7 @@ AbstractPouchDB.prototype.removeAttachment =
 });
 
 AbstractPouchDB.prototype.remove =
-  utils.adapterFun('remove', function (docOrId, optsOrRev, opts, callback) {
+  adapterFun('remove', function (docOrId, optsOrRev, opts, callback) {
   var doc;
   if (typeof optsOrRev === 'string') {
     // id, rev, opts, callback style
@@ -314,7 +327,7 @@ AbstractPouchDB.prototype.remove =
       opts = optsOrRev;
     }
   }
-  opts = utils.clone(opts || {});
+  opts = opts || {};
   opts.was_delete = true;
   var newDoc = {_id: doc._id, _rev: (doc._rev || opts.rev)};
   newDoc._deleted = true;
@@ -325,12 +338,11 @@ AbstractPouchDB.prototype.remove =
 });
 
 AbstractPouchDB.prototype.revsDiff =
-  utils.adapterFun('revsDiff', function (req, opts, callback) {
+  adapterFun('revsDiff', function (req, opts, callback) {
   if (typeof opts === 'function') {
     callback = opts;
     opts = {};
   }
-  opts = utils.clone(opts);
   var ids = Object.keys(req);
 
   if (!ids.length) {
@@ -338,7 +350,7 @@ AbstractPouchDB.prototype.revsDiff =
   }
 
   var count = 0;
-  var missing = new utils.Map();
+  var missing = new collections.Map();
 
   function addToMissing(id, revId) {
     if (!missing.has(id)) {
@@ -359,6 +371,7 @@ AbstractPouchDB.prototype.revsDiff =
         }
 
         missingForId.splice(idx, 1);
+        /* istanbul ignore if */
         if (opts.status !== 'available') {
           addToMissing(id, rev);
         }
@@ -376,6 +389,7 @@ AbstractPouchDB.prototype.revsDiff =
       if (err && err.status === 404 && err.message === 'missing') {
         missing.set(id, {missing: req[id]});
       } else if (err) {
+        /* istanbul ignore next */
         return callback(err);
       } else {
         processDoc(id, rev_tree);
@@ -393,13 +407,26 @@ AbstractPouchDB.prototype.revsDiff =
   }, this);
 });
 
+// _bulk_get API for faster replication, as described in
+// https://github.com/apache/couchdb-chttpd/pull/33
+// At the "abstract" level, it will just run multiple get()s in
+// parallel, because this isn't much of a performance cost
+// for local databases (except the cost of multiple transactions, which is
+// small). The http adapter overrides this in order
+// to do a more efficient single HTTP request.
+AbstractPouchDB.prototype.bulkGet =
+  adapterFun('bulkGet', function (opts, callback) {
+  bulkGetShim(this, opts, callback);
+});
+
 // compact one document and fire callback
 // by compacting we mean removing all revisions which
 // are further from the leaf in revision tree than max_height
 AbstractPouchDB.prototype.compactDocument =
-  utils.adapterFun('compactDocument', function (docId, maxHeight, callback) {
+  adapterFun('compactDocument', function (docId, maxHeight, callback) {
   var self = this;
   this._getRevisionTree(docId, function (err, revTree) {
+    /* istanbul ignore if */
     if (err) {
       return callback(err);
     }
@@ -425,14 +452,14 @@ AbstractPouchDB.prototype.compactDocument =
 // compact the whole database using single document
 // compaction
 AbstractPouchDB.prototype.compact =
-  utils.adapterFun('compact', function (opts, callback) {
+  adapterFun('compact', function (opts, callback) {
   if (typeof opts === 'function') {
     callback = opts;
     opts = {};
   }
-  var self = this;
 
-  opts = utils.clone(opts || {});
+  var self = this;
+  opts = opts || {};
 
   self._compactionQueue = self._compactionQueue || [];
   self._compactionQueue.push({opts: opts, callback: callback});
@@ -443,7 +470,7 @@ AbstractPouchDB.prototype.compact =
 AbstractPouchDB.prototype._compact = function (opts, callback) {
   var self = this;
   var changesOpts = {
-    returnDocs: false,
+    return_docs: false,
     last_seq: opts.last_seq || 0
   };
   var promises = [];
@@ -473,7 +500,7 @@ AbstractPouchDB.prototype._compact = function (opts, callback) {
 /* Begin api wrappers. Specific functionality to storage belongs in the
    _[method] */
 AbstractPouchDB.prototype.get =
-  utils.adapterFun('get', function (id, opts, callback) {
+  adapterFun('get', function (id, opts, callback) {
   if (typeof opts === 'function') {
     callback = opts;
     opts = {};
@@ -489,6 +516,7 @@ AbstractPouchDB.prototype.get =
   function finishOpenRevs() {
     var result = [];
     var count = leaves.length;
+    /* istanbul ignore if */
     if (!count) {
       return callback(null, result);
     }
@@ -543,7 +571,6 @@ AbstractPouchDB.prototype.get =
   }
 
   return this._get(id, opts, function (err, result) {
-    opts = utils.clone(opts);
     if (err) {
       return callback(err);
     }
@@ -631,14 +658,13 @@ AbstractPouchDB.prototype.get =
 });
 
 AbstractPouchDB.prototype.getAttachment =
-  utils.adapterFun('getAttachment', function (docId, attachmentId, opts,
+  adapterFun('getAttachment', function (docId, attachmentId, opts,
                                               callback) {
   var self = this;
   if (opts instanceof Function) {
     callback = opts;
     opts = {};
   }
-  opts = utils.clone(opts);
   this._get(docId, opts, function (err, res) {
     if (err) {
       return callback(err);
@@ -654,12 +680,11 @@ AbstractPouchDB.prototype.getAttachment =
 });
 
 AbstractPouchDB.prototype.allDocs =
-  utils.adapterFun('allDocs', function (opts, callback) {
+  adapterFun('allDocs', function (opts, callback) {
   if (typeof opts === 'function') {
     callback = opts;
     opts = {};
   }
-  opts = utils.clone(opts);
   opts.skip = typeof opts.skip !== 'undefined' ? opts.skip : 0;
   if (opts.start_key) {
     opts.startkey = opts.start_key;
@@ -699,12 +724,12 @@ AbstractPouchDB.prototype.changes = function (opts, callback) {
 };
 
 AbstractPouchDB.prototype.close =
-  utils.adapterFun('close', function (callback) {
+  adapterFun('close', function (callback) {
   this._closed = true;
   return this._close(callback);
 });
 
-AbstractPouchDB.prototype.info = utils.adapterFun('info', function (callback) {
+AbstractPouchDB.prototype.info = adapterFun('info', function (callback) {
   var self = this;
   this._info(function (err, info) {
     if (err) {
@@ -718,22 +743,23 @@ AbstractPouchDB.prototype.info = utils.adapterFun('info', function (callback) {
   });
 });
 
-AbstractPouchDB.prototype.id = utils.adapterFun('id', function (callback) {
+AbstractPouchDB.prototype.id = adapterFun('id', function (callback) {
   return this._id(callback);
 });
 
 AbstractPouchDB.prototype.type = function () {
+  /* istanbul ignore next */
   return (typeof this._type === 'function') ? this._type() : this.adapter;
 };
 
 AbstractPouchDB.prototype.bulkDocs =
-  utils.adapterFun('bulkDocs', function (req, opts, callback) {
+  adapterFun('bulkDocs', function (req, opts, callback) {
   if (typeof opts === 'function') {
     callback = opts;
     opts = {};
   }
 
-  opts = utils.clone(opts || {});
+  opts = opts || {};
 
   if (Array.isArray(req)) {
     req = {
@@ -764,7 +790,6 @@ AbstractPouchDB.prototype.bulkDocs =
     return callback(errors.error(errors.BAD_REQUEST, attachmentError));
   }
 
-  req = utils.clone(req);
   if (!('new_edits' in opts)) {
     if ('new_edits' in req) {
       opts.new_edits = req.new_edits;
@@ -796,7 +821,7 @@ AbstractPouchDB.prototype.bulkDocs =
 });
 
 AbstractPouchDB.prototype.registerDependentDatabase =
-  utils.adapterFun('registerDependentDatabase', function (dependentDb,
+  adapterFun('registerDependentDatabase', function (dependentDb,
                                                           callback) {
   var depDB = new this.constructor(dependentDb, this.__opts);
 
@@ -815,7 +840,7 @@ AbstractPouchDB.prototype.registerDependentDatabase =
 });
 
 AbstractPouchDB.prototype.destroy =
-  utils.adapterFun('destroy', function (opts, callback) {
+  adapterFun('destroy', function (opts, callback) {
 
   if (typeof opts === 'function') {
     callback = opts;
@@ -843,6 +868,7 @@ AbstractPouchDB.prototype.destroy =
 
   self.get('_local/_pouch_dependentDbs', function (err, localDoc) {
     if (err) {
+      /* istanbul ignore if */
       if (err.status !== 404) {
         return callback(err);
       } else { // no dependencies
@@ -857,6 +883,7 @@ AbstractPouchDB.prototype.destroy =
       return new PouchDB(trueName, self.__opts).destroy();
     });
     Promise.all(deletedMap).then(destroyDb, function (error) {
+      /* istanbul ignore next */
       callback(error);
     });
   });

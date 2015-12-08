@@ -4,33 +4,35 @@
       <ion-nav-back-button></ion-nav-back-button>
 
       <ion-nav-buttons side="left">
-        <button class="button button-icon button-clear ion-navicon" menu-toggle="left">
+        <button class="button button-icon button-clear ion-navicon" menu-toggle="left" style="margin-left: -16px;">
         </button>
       </ion-nav-buttons>
     </ion-nav-bar>
     <ion-nav-view name="menuContent"></ion-nav-view>
   </ion-side-menu-content>
 
-  <ion-side-menu side="left" width="150">
-    <ion-header-bar class="bar-stable">
+  <ion-side-menu class="stable-bg" side="left" width="150">
+    <ion-header-bar class="bar-royal">
       <h1 class="title">Chalk it up</h1>
     </ion-header-bar>
     <ion-content>
       <ion-list>
+<!--
         <ion-item menu-close ng-click="login()">
           登录
         </ion-item>
-        <ion-item menu-close href="#/app/expense">
-          支出
+-->
+        <ion-item menu-close ui-sref="app.expense" ui-sref-active="current-page">
+          <i class="icon ion-arrow-down-b"></i>支出
         </ion-item>
-        <ion-item menu-close href="#/app/revenue">
-          收入
+        <ion-item menu-close ui-sref="app.revenue" ui-sref-active="current-page">
+          <i class="icon ion-arrow-up-b"></i>收入
         </ion-item>
-        <ion-item menu-close href="#/app/statistics">
-          统计
+        <ion-item menu-close ui-sref="app.statistics" ui-sref-active="current-page">
+          <i class="icon ion-stats-bars"></i>统计
         </ion-item>
-        <ion-item menu-close href="#/app/settings">
-          设置
+        <ion-item menu-close ui-sref="app.settings" ui-sref-active="current-page">
+          <i class="icon ion-android-settings"></i>设置
         </ion-item>
       </ion-list>
     </ion-content>

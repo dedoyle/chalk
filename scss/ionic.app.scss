@@ -1,10 +1,10 @@
-@charset "UTF-8";
+@charset "utf-8";
 
 /*
-To customize the look and feel of Ionic, you can override the variables
+to customize the look and feel of ionic, you can override the variables
 in ionic's _variables.scss file.
 
-For example, you might change some of the default colors:
+for example, you might change some of the default colors:
 
 $light:                           #fff !default;
 $stable:                          #f8f8f8 !default;
@@ -17,95 +17,132 @@ $royal:                           #886aea !default;
 $dark:                            #444 !default;
 */
 
-// The path for our ionicons font files, relative to the built CSS in www/css
+// the path for our ionicons font files, relative to the built css in www/css
 $ionicons-font-path: "../lib/ionic/fonts" !default;
-$assertive: #EA5C51;
-$royal: #555577;
-$stable: #EEEBD2;
+$assertive: #e6534b;
+$royal: #2f2f38;
+$stable: #eeebd2;
 $energized: #f08850;
-// Include all of Ionic
+$font-light: #fff;
+$font-dark: #3a3c4b;
+$footer-font: #4d404a;
+$expense-item-bg: #d8433a;
+$icon-dark: #5d5455;
+$fontstack: roboto,
+helvetica,
+droid sans,
+verdana;
+$footer-height: 60px;
+// include all of ionic
 @import "www/lib/ionic/scss/ionic";
+p {
+  margin-bottom: 0;
+}
+.scroll-bar-indicator {
+  display: none;
+}
 .bar {
   .title {
     margin-left: 0;
-    font-size: 16px;
+    font-size: 17px;
     right: 0 !important;
   }
   button:before {
-    font-size: 16px !important;
+    font-size: 25px !important;
   }
 }
-.expense {
-  padding: 30px 20px !important;
-  .footing {
-    padding-top: 20px;
-    .col {
-      font-size: 2.5em;
-      margin-bottom: 20px;
-    }
-    .sum {
-      text-align: right;
-    }
-  }
-  .item {
-//    padding: 0;
-    margin-bottom: 10px;
-//    font-size: 20px;
-    color: #fff;
-    background-color: #DA4337;
-    border: 1px solid transparent;
-//    border-radius: 2px;
-    div {
-      padding: 10px;
-    }
-    .icon {
-//      padding: 0 2px;
-//      text-align: center;
-    }
+.item {
+  padding: 10px;
+  border-color: #bdbcb7;
+  background-color: transparent;
+  line-height: 37px;
+  .icon {
+    margin-right: 15px;
+    font-size: 30px;
+    vertical-align: middle;
   }
   .item-note {
-    color: #fff;
-    font-size: 20px;
+    font-size: 16px;
   }
 }
-.bar-footer {
-  height: 50px;
-  .row, .col {
-    padding: 0;
+.show-box {
+  padding: 20px;
+  font-size: 3em;
+  line-height: 42px;
+  overflow: hidden;
+  color: $font-light;
+}
+.l {
+  float: left;
+}
+.r {
+  float: right;
+}
+.menu-left {
+  .item-complex {
+    .item-content {
+      padding: 0;
+      background-color: transparent;
+    }
   }
-  p {
-    margin-bottom: 0;
+}
+.current-page {
+  background-color: #30a9cd;
+}
+.swipe-box {
+  height: 100%;
+}
+.expense .item {
+  background: $expense-item-bg;
+}
+.list-primary {
+  .item {
+    margin-bottom: 10px;
+    padding-left: 20px;
+    padding-right: 20px;
+    color: $font-light;
+    border: none;
   }
-  .percentage {
-    font-size: .5em;
+  .item-note {
+    color: $font-light;
   }
+}
+.footer-box {
+  position: absolute;
+  right: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 9;
+  width: 100%;
+  height: $footer-height;
+  padding: 10px 20px;
+  box-sizing: border-box;
+  color: $footer-font;
+  background: $stable;
   .piggy {
     .icon-pig:before {
-      font-size: 2.5em;
-      margin-top: -5px;
+      font-size: 3em;
+      margin-top: -8px;
+      color: #9d979b;
     }
     .percentage {
-      font-size: .5em;
+      font-size: 1em;
       margin-top: -10px;
-      margin-left: 8px;
+      text-align: center;
     }
   }
   .budget-wrap {
     text-align: right;
-    letter-spacing: 1px;
     .money {
-      font-size: 1em;
+      font-size: 1.5em;
     }
     .desc {
-      font-size: .5em;
+      font-size: 1em;
     }
   }
-  .budget-content {
-    float: right;
-  }
-  .budget-left, .budget-right {
-    float: left
-  }
+}
+.has-footer {
+  bottom: $footer-height;
 }
 .cost {
   font-size: 3em;
@@ -124,7 +161,7 @@ $energized: #f08850;
     text-align: center;
     a {
       padding: 10px 0 5px;
-      color: #4D4D5D;
+      color: #4d4d5d;
       text-decoration: none;
       display: block;
       .icon {
@@ -140,7 +177,7 @@ $energized: #f08850;
     }
   }
   .activated {
-    background: #DEDBBA;
+    background: #dedbba;
   }
   .slider-pager {
     bottom: 5px;
@@ -150,23 +187,26 @@ $energized: #f08850;
   }
 }
 .list .activated {
-  background: #DEDBBA;
+  background: #dedbba;
 }
-.edit-page .list .item {
-//  padding-top: 10px;
-//  padding-bottom: 10px;
-  .icon {
-//    font-size: 14px;
-    color: #4D4D5D;
+.edit-page {
+  .item {
+    .icon {
+      color: $icon-dark;
+    }
+    span,
+    p {
+      font-size: 12px;
+      color: #3c3c3c;
+      text-align: right;
+      line-height: 21px;
+    }
+    .item-note {
+      width: 100%;
+    }
   }
-  span,
-  p {
-    font-size: 12px;
-    color: #4D4D5D;
-    text-align: right;
-  }
-  .item-note {
-    width: 100%;
+  .item-icon-left {
+    padding-left: 51px;
   }
 }
 .scroll {
@@ -178,60 +218,59 @@ $energized: #f08850;
   right: 0;
   bottom: 0;
   z-index: 2;
-  background: #FCFAEA;
   height: 60%;
   max-height: 500px;
+  background: #fcfaea;
+  &.only-number {
+    bottom: -12%;
+  }
   .col {
     padding: 0;
     height: 100%;
   }
-  .num {
-    padding: 0;
-    height: 100%;
-  }
   .button {
+    margin: 0;
+    height: 100%;
     min-height: 20px;
     max-height: 100px;
-    height: 100%;
-    margin: 0;
   }
   .num .button {
-    color: #6B6B75;
+    color: $font-dark;
   }
   .controll .button {
     max-height: 200px;
   }
   .button-clear.activated {
     opacity: 1;
-    background-color: #DFDDCB;
+    background-color: #dfddcb;
   }
   .ac.activated {
     opacity: 1;
-    background-color: #C03F39;
+    background-color: #c03f39;
   }
   .button-green.activated {
     opacity: 1;
-    background-color: #85AF32;
+    background-color: #85af32;
   }
   .divide {
-    color: #EF9F51;
+    color: #ef9f51;
   }
   .multiply {
-    color: #82A7E3;
+    color: #82a7e3;
   }
   .subtract {
-    color: #E6534B;
+    color: #e6534b;
   }
   .add {
-    color: #9BCA3E;
+    color: #9bca3e;
   }
   .button-red {
     color: #fff;
-    background: #E6534B;
+    background: #e6534b;
   }
   .button-green {
     color: #fff;
-    background: #9BCA3E;
+    background: #9bca3e;
   }
   .row {
     padding: 0;
@@ -248,15 +287,14 @@ $energized: #f08850;
 }
 .popup-container .popup {
   max-width: 80%;
-  background-color: #EEEBD2;
-  .item {
-//    padding: 0;
-//    font-size: 12px;
+  background-color: #eeebd2;
+  .item-radio {
+    padding: 0;
   }
 }
 .item-radio .item-content,
 .item-radio input:checked ~ .item-content {
-  background-color: #EEEBD2;
+  background-color: transparent;
 }
 .popup-head {
   padding: 10px 0;
@@ -285,33 +323,30 @@ $energized: #f08850;
 }
 .detail-page {
   .item {
-//    padding: 0 16px 0 54px;
-//    height: 42px;
-//    line-height: 42px;
     overflow: hidden;
-//    font-size: 12px;
-    color: #fff;
+    color: $font-light;
     background-color: #e6534b;
     border: 1px solid #e56962;
-//    border-radius: 2px;
-    .icon {
-//      font-size: 20px;
+    .item-text {
+      margin-left: 45px;
     }
-    p,
-    span {
-      font-size: 12px;
-      color: #fff;
+    .item-note,
+    p {
+      color: $font-light;
     }
     p {
       line-height: 21px;
       margin: 0;
     }
   }
+  .item-icon-left {
+    line-height: 42px;
+  }
   .item-name {
     background: #da473f;
   }
   .money {
-    font-size: 30px;
+    font-size: 2em;
   }
   .button {
     left: 5%;
@@ -321,14 +356,14 @@ $energized: #f08850;
     line-height: normal;
   }
 }
-.money {
-  font-family: "Microsoft YaHei";
+.setting-list .item {
+  color: $font-dark;
 }
-.setting-list {
+.setbudget {
   .item {
-//    padding: 10px 0;
+    color: $font-dark;
     .icon {
-//      padding: 10px;
+      color: $icon-dark;
     }
   }
 }

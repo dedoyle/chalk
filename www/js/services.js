@@ -1,110 +1,11 @@
 angular
   .module('starter.services', [])
-
-.factory('ExpenseService', ExpenseService)
   .factory('TagService', TagService)
+  .factory('BudgetService', BudgetService)
   .factory('AcountService', AcountService)
-  .factory('regularExpensesService', regularExpensesService)
-  .factory('SharedDataService', SharedDataService);
-
-ExpenseService.$inject = ['$q', '$rootScope'];
-
-function ExpenseService($q, $rootScope) {
-  var _db,
-    _expenses;
-
-  return {
-    initDB: initDB,
-    addExpense: addExpense,
-    updateExpense: updateExpense,
-    deleteExpense: deleteExpense,
-    getAllExpense: getAllExpense,
-    destroyexpense: destroyexpense
-  };
-
-  function initDB() {
-    _db = new PouchDB('expense', {
-      adapter: 'websql'
-    });
-  }
-
-  function destroyexpense() {
-    _db.destroy(function (err, response) {
-      if (err) {
-        return console.log(err);
-      }
-    });
-  }
-
-  function addExpense(expense) {
-    $rootScope.$emit('expense.updated');
-    return $q.when(_db.post(expense));
-  }
-
-  function updateExpense(expense) {
-    $rootScope.$emit('expense.updated');
-    return $q.when(_db.put(expense));
-  }
-
-  function deleteExpense(expense) {
-    $rootScope.$emit('expense.updated');
-    return $q.when(_db.remove(expense));
-  }
-
-  function getAllExpense() {
-    if (!_expenses) {
-      return $q.when(_db.allDocs({
-          include_docs: true
-        }))
-        .then(function (docs) {
-          _expenses = docs.rows.map(function (row) {
-            row.doc.date = new Date(row.doc.date);
-            return row.doc;
-          });
-
-          _db.changes({
-              live: true,
-              since: 'now',
-              include_docs: true
-            })
-            .on('change', onDatabaseChange);
-
-          return _expenses;
-        });
-    } else {
-      return $q.when(_expenses);
-    }
-  }
-
-  function onDatabaseChange(change) {
-    var index = findIndex(_expenses, change.id),
-      expense = _expenses[index];
-
-    if (change.deleted) {
-      if (expense) {
-        _expenses.splice(index, 1);
-      }
-    } else {
-      if (expense && expense._id === change.id) {
-        _expenses[index] = change.doc;
-      } else {
-        _expenses.splice(index, 0, change.doc);
-      }
-    }
-  }
-
-  function findIndex(arr, id) {
-    var low = 0,
-      high = arr.length,
-      mid;
-    while (low < high) {
-      mid = (low + high) >>> 1;
-      arr[mid]._id < id ? low = mid + 1 : high = mid;
-    }
-
-    return low;
-  }
-}
+  .factory('ExpenseService', ExpenseService)
+  .factory('SharedDataService', SharedDataService)
+  .factory('regularExpensesService', regularExpensesService);
 
 function TagService() {
   var tag_list = [
@@ -203,91 +104,226 @@ function TagService() {
   };
 }
 
-function AcountService() {
-  var accounts = ['现金', '银行卡'];
+BudgetService.$inject = ['$q', '$rootScope'];
 
-  function getAccounts() {
-    return accounts;
-  }
+function BudgetService($q, $rootScope) {
+  var _db,
+    _budget,
+    defaultBudget = {
+      _id: 'debudget',
+      money: 3000,
+      totalExpense: 0,
+      regularDay: 1,
+      remainingBudget: 3000
+    };
 
   return {
-    getAccounts: getAccounts
+    initDB: initDB,
+    getBudget: getBudget,
+    updateBudget: updateBudget,
+    reduceBudgetBy: reduceBudgetBy,
+    destroyBudget: destroyBudget
   };
+
+  function initDB() {
+    _db = new PouchDB('budget', {
+      adapter: 'websql'
+    });
+    addBudget(defaultBudget);
+  }
+
+  function addBudget(budget) {
+    return $q.when(_db.put(budget));
+  }
+
+  function getBudget() {
+    return $q.when(_db.get(defaultBudget._id));
+  }
+
+  function updateBudget(budget) {
+    budget.remainingBudget = budget.money - budget.totalExpense;
+
+    return getBudget()
+      .then(function (doc) {
+        // rev 必须使用doc._rev而不是budget._rev
+        return _db.put({
+          _id: defaultBudget._id,
+          _rev: doc._rev,
+          money: budget.money,
+          totalExpense: budget.totalExpense,
+          regularDay: budget.regularDay,
+          remainingBudget: budget.remainingBudget
+        });
+      }).then(function (response) {
+        $rootScope.$emit('budget.updated');
+      }).catch(function (err) {
+        console.error(err);
+      });
+  }
+
+  function reduceBudgetBy(expense) {
+    getBudget().then(function (budget) {
+      budget.totalExpense -= expense;
+      updateBudget(budget);
+    });
+  }
+
+  function destroyBudget() {
+    _db.destroy(function (err, response) {
+      if (err) {
+        return console.log(err);
+      }
+    });
+  }
 }
 
-function regularExpensesService() {
-  var regularExpenses = ['无', '每日', '每周', '每月'];
+function AcountService() {
+  var account = {};
 
-  function getRegularExpenses() {
-    return regularExpenses;
-  }
+  account.getAccounts = function () {
+    return ['现金', '银行卡'];
+  };
+
+  return account;
+}
+
+ExpenseService.$inject = ['$q'];
+
+function ExpenseService($q) {
+  var _db,
+    _expenses = [];
 
   return {
-    getRegularExpenses: getRegularExpenses
+    initDB: initDB,
+    addExpense: addExpense,
+    getExpense: getExpense,
+    updateExpense: updateExpense,
+    deleteExpense: deleteExpense,
+    getExpenseList: getExpenseList,
+    destroyexpense: destroyexpense
   };
+
+  function initDB() {
+    _db = new PouchDB('expense', {
+      adapter: 'websql'
+    });
+    console.log('initdb');
+  }
+
+  function destroyexpense() {
+    _db.destroy(function (err, response) {
+      if (err) {
+        return console.log(err);
+      }
+    });
+  }
+
+  function addExpense(expense) {
+    return $q.when(_db.post(expense));
+  }
+
+  function updateExpense(expense) {
+    return $q.when(_db.put(expense));
+  }
+
+  function getExpense(id) {
+    return $q.when(_db.get(id));
+  }
+
+  function deleteExpense(expense) {
+    return $q.when(_db.remove(expense));
+  }
+
+  function getExpenseList(day) {
+    console.log('get expense list');
+    return $q.when(_db.allDocs({
+        include_docs: true
+      }))
+      .then(function (docs) {
+        _expenses[day] = docs.rows.map(function (row) {
+          row.doc.date = moment(row.doc.date);
+          return row.doc;
+        });
+
+        _expenses[day] = _expenses[day].filter(function (row) {
+          return row.day === day;
+        });
+
+        _db.changes({
+            live: true,
+            since: 'now',
+            include_docs: true
+          })
+          .on('change', onDatabaseChange);
+
+        return _expenses;
+      }).catch(function (err) {
+        console.log(err);
+      });
+  }
+
+  function onDatabaseChange(change) {
+    var expensesOneDay = _expenses[change.doc.day];
+    var index = findIndex(expensesOneDay, change.id),
+      expense = expensesOneDay[index];
+
+    if (change.deleted) {
+      if (expense) {
+        // delete
+        expensesOneDay.splice(index, 1);
+      }
+    } else {
+      if (expense && expense._id === change.id) {
+        // update
+        expensesOneDay[index] = change.doc;
+      } else {
+        // insert
+        expensesOneDay.splice(index, 0, change.doc);
+      }
+    }
+  }
+
+  function findIndex(arr, id) {
+    var low = 0,
+      high = arr.length,
+      mid;
+    while (low < high) {
+      mid = (low + high) >>> 1;
+      arr[mid]._id < id ? low = mid + 1 : high = mid;
+    }
+
+    return low;
+  }
 }
 
 SharedDataService.$inject = ['$rootScope'];
 
 function SharedDataService($rootScope) {
-  var service = {};
-  service.expense = {
+  var share = {
     description: ''
   };
-  service.budget = 3000;
-  service.remainingBudget = 0;
-  service.getBudget = getBudget;
-  service.setBudget = setBudget;
-  service.getRemainingBudget = getRemainingBudget;
-  service.setRemainingBudget = setRemainingBudget;
-  service.getExpense = getExpense;
-  service.setExpense = setExpense;
-  service.getAction = getAction;
-  service.setAction = setAction;
-  service.getDescription = getDescription;
-  service.setDescription = setDescription;
 
-
-  return service;
-
-  function getBudget() {
-    return this.budget;
-  }
-
-  function setBudget(budget) {
-    this.budget = budget;
-  }
-
-  function getRemainingBudget() {
-    return this.remainingBudget;
-  }
-
-  function setRemainingBudget(remain) {
-    this.remainingBudget = remain;
-  }
-
-  function getExpense() {
-    return this.expense;
-  }
-
-  function setExpense(expense) {
-    this.expense = expense;
-  }
-
-  function getAction() {
-    return this.action || {};
-  }
-
-  function setAction(action) {
-    this.action = action;
-  }
+  return {
+    getDescription: getDescription,
+    setDescription: setDescription
+  };
 
   function getDescription() {
-    return this.expense.description;
+    return share.description;
   }
 
   function setDescription(desc) {
-    this.expense.description = desc;
+    share.description = desc;
     $rootScope.$emit('description.changed');
   }
+}
+
+function regularExpensesService() {
+  var regularExpenses = {};
+
+  regularExpenses.getRegularExpenses = function () {
+    return ['无', '每日', '每周', '每月'];
+  };
+
+  return regularExpenses;
 }

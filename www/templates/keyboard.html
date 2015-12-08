@@ -1,5 +1,5 @@
-<div class="keyboard">
-  <div class="row row-20">
+<div class="keyboard" data-ng-class="{'only-number': onlynumber}">
+  <div data-ng-hide="onlynumber" class="row row-20">
     <div class="col col-25"><button class="button button-full button-clear divide" data-ng-click="write('/')">÷</button></div>
     <div class="col col-25"><button class="button button-full button-clear multiply" data-ng-click="write('*')">×</button></div>
     <div class="col col-25"><button class="button button-full button-clear subtract" data-ng-click="write('-')">－</button></div>
@@ -23,7 +23,7 @@
         <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('9')">9</button></div>
       </div>
       <div class="row row-25">
-        <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('.')">.</button></div>
+        <div class="col col-33"><button data-ng-hide="onlynumber" class="button button-full button-clear" data-ng-click="write('.')">.</button></div>
         <div class="col col-33"><button class="button button-full button-clear" data-ng-click="write('0')">0</button></div>
         <div class="col col-33"><button class="button button-full button-clear ion-backspace-outline"></button></div>
       </div>

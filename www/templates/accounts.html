@@ -1,6 +1,6 @@
 <ion-list>
-  <label class="item item-radio" data-ng-repeat="account in accounts">
-  <input type="radio" ng-model="expense.account" ng-value="account" name="account">
+  <label class="item item-radio" data-ng-repeat="account in edit.accounts">
+  <input type="radio" ng-model="edit.expense.account" ng-value="account" name="account">
   <div class="item-content">{{ account }}</div>
   <i class="radio-icon ion-checkmark"></i>
   </label>

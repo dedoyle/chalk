@@ -1,6 +1,10 @@
 'use strict';
-var utils = require('./utils');
+var clone = require('./deps/clone');
+var Promise = require('./deps/promise');
 var isDeleted = require('./deps/docs/isDeleted');
+var inherits = require('inherits');
+var getArguments = require('argsarray');
+var once = require('./deps/once');
 var errors = require('./deps/errors');
 var EE = require('events').EventEmitter;
 var evalFilter = require('./evalFilter');
@@ -11,14 +15,14 @@ var normalizeDdocFunctionName =
 var collectLeaves = require('./deps/merge/collectLeaves');
 var collectConflicts = require('./deps/merge/collectConflicts');
 module.exports = Changes;
-utils.inherits(Changes, EE);
+inherits(Changes, EE);
 
 function Changes(db, opts, callback) {
   EE.call(this);
   var self = this;
   this.db = db;
-  opts = opts ? utils.clone(opts) : {};
-  var complete = opts.complete = utils.once(function (err, resp) {
+  opts = opts ? clone(opts) : {};
+  var complete = opts.complete = once(function (err, resp) {
     if (err) {
       self.emit('error', err);
     } else {
@@ -32,6 +36,7 @@ function Changes(db, opts, callback) {
       callback(null, resp);
     });
     self.on('error', function (err) {
+      /* istanbul ignore next */
       callback(err);
     });
   }
@@ -41,6 +46,7 @@ function Changes(db, opts, callback) {
   db.once('destroyed', onDestroy);
 
   opts.onChange = function (change) {
+    /* istanbul ignore if */
     if (opts.isCancelled) {
       return;
     }
@@ -48,17 +54,9 @@ function Changes(db, opts, callback) {
     if (self.startSeq && self.startSeq <= change.seq) {
       self.startSeq = false;
     }
-    if (change.deleted) {
-      self.emit('delete', change);
-    } else if (change.changes.length === 1 &&
-      change.changes[0].rev.slice(0, 2) === '1-') {
-      self.emit('create', change);
-    } else {
-      self.emit('update', change);
-    }
   };
 
-  var promise = new utils.Promise(function (fulfill, reject) {
+  var promise = new Promise(function (fulfill, reject) {
     opts.complete = function (err, res) {
       if (err) {
         reject(err);
@@ -125,7 +123,7 @@ Changes.prototype.doChanges = function (opts) {
   var self = this;
   var callback = opts.complete;
 
-  opts = utils.clone(opts);
+  opts = clone(opts);
   if ('live' in opts && !('continuous' in opts)) {
     opts.continuous = opts.live;
   }
@@ -139,6 +137,7 @@ Changes.prototype.doChanges = function (opts) {
   }
   if (opts.since === 'now') {
     this.db.info().then(function (info) {
+      /* istanbul ignore if */
       if (self.isCancelled) {
         callback(null, {status: 'cancelled'});
         return;
@@ -152,10 +151,10 @@ Changes.prototype.doChanges = function (opts) {
   if (opts.continuous && opts.since !== 'now') {
     this.db.info().then(function (info) {
       self.startSeq = info.update_seq;
+    /* istanbul ignore next */
     }, function (err) {
       if (err.id === 'idbNull') {
-        //db closed before this returned
-        //thats ok
+        // db closed before this returned thats ok
         return;
       }
       throw err;
@@ -184,7 +183,7 @@ Changes.prototype.doChanges = function (opts) {
   var newPromise = this.db._changes(opts);
   if (newPromise && typeof newPromise.cancel === 'function') {
     var cancel = self.cancel;
-    self.cancel = utils.getArguments(function (args) {
+    self.cancel = getArguments(function (args) {
       newPromise.cancel();
       cancel.apply(this, args);
     });
@@ -203,6 +202,7 @@ Changes.prototype.filterChanges = function (opts) {
     // fetch a view from a design doc, make it behave like a filter
     var viewName = parseDdocFunctionName(opts.view);
     this.db.get('_design/' + viewName[0], function (err, ddoc) {
+      /* istanbul ignore if */
       if (self.isCancelled) {
         return callback(null, {status: 'cancelled'});
       }
@@ -224,10 +224,10 @@ Changes.prototype.filterChanges = function (opts) {
     // fetch a filter from a design doc
     var filterName = parseDdocFunctionName(opts.filter);
     if (!filterName) {
-      return callback(errors.error(errors.BAD_REQUEST,
-                             '`filter` filter parameter invalid.'));
+      return self.doChanges(opts);
     }
     this.db.get('_design/' + filterName[0], function (err, ddoc) {
+      /* istanbul ignore if */
       if (self.isCancelled) {
         return callback(null, {status: 'cancelled'});
       }

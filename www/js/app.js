@@ -4,10 +4,10 @@
 // 'starter' is the name of this angular module example (also set in a <body> attribute in index.html)
 // the 2nd parameter is an array of 'requires'
 // 'starter.controllers' is found in controllers.js
-angular.module('starter', ['ionic', 'starter.services', 'starter.controllers', 'starter.directives', 'starter.filters', 'morphCarousel'])
+angular.module('starter', ['ionic', 'starter.services', 'starter.controllers', 'starter.directives', 'starter.filters', 'morphCarousel', 'once'])
 
-.run(function($ionicPlatform) {
-  $ionicPlatform.ready(function() {
+.run(function ($ionicPlatform, ExpenseService, BudgetService) {
+  $ionicPlatform.ready(function () {
     // Hide the accessory bar by default (remove this to show the accessory bar above the keyboard
     // for form inputs)
     if (window.cordova && window.cordova.plugins.Keyboard) {
@@ -20,9 +20,12 @@ angular.module('starter', ['ionic', 'starter.services', 'starter.controllers', '
       StatusBar.styleDefault();
     }
   });
+
+    ExpenseService.initDB();
+    BudgetService.initDB();
 })
 
-.config(function($stateProvider, $urlRouterProvider, $ionicConfigProvider) {
+.config(function ($stateProvider, $urlRouterProvider, $ionicConfigProvider) {
   $stateProvider
 
     .state('app', {
@@ -37,37 +40,48 @@ angular.module('starter', ['ionic', 'starter.services', 'starter.controllers', '
     views: {
       'menuContent': {
         templateUrl: 'templates/expense.html',
-        controller: 'ExpenseController as expense'
+        controller: 'ExpenseController as expense',
       }
     }
   })
 
   .state('app.detail', {
-    url: '/detail',
+    url: '/detail/:expenseId/:rev/:day',
     views: {
       'menuContent': {
         templateUrl: 'templates/detail.html',
-        controller: 'DetailController as detail'
+        controller: 'DetailController as detail',
+        resolve: {
+          expense: expense
+        }
       }
     }
   })
 
   .state('app.add-or-edit', {
-    url: '/add-or-edit',
+    url: '/add-or-edit/:action/:isAdd/:expenseId/:day',
     views: {
       'menuContent': {
         templateUrl: 'templates/add-or-edit.html',
-        controller: 'EditController as edit'
+        controller: 'EditController as edit',
+        resolve: {
+          action: action,
+          expense: expense
+        }
       }
     }
   })
 
   .state('app.description', {
-    url: '/description',
+    url: '/description/:action/:isAdd/:expenseId',
     views: {
       'menuContent': {
         templateUrl: 'templates/description.html',
-        controller: 'DescriptionController as desc'
+        controller: 'DescriptionController as desc',
+        resolve: {
+          action: action,
+          expense: expense
+        }
       }
     }
   })
@@ -107,8 +121,23 @@ angular.module('starter', ['ionic', 'starter.services', 'starter.controllers', '
         }
       }
     });
-  // if none of the above states are matched, use this as the fallback
   $urlRouterProvider.otherwise('/app/expense');
   $ionicConfigProvider.navBar.alignTitle('left');
   $ionicConfigProvider.backButton.text('').previousTitleText(false);
 });
+
+expense.$inject = ['$stateParams', 'ExpenseService'];
+
+function expense($stateParams, ExpenseService) {
+  if ('' === $stateParams.expenseId) return;
+  return ExpenseService.getExpense($stateParams.expenseId);
+}
+
+action.$inject = ['$stateParams'];
+
+function action($stateParams) {
+  return {
+    name: $stateParams.action,
+    isAdd: $stateParams.isAdd
+  };
+}

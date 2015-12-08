@@ -1,7 +1,10 @@
 "use strict";
 
+var extend = require('js-extend').extend;
+
 var PouchDB = require("./constructor");
-var utils = require('./utils');
+var inherits = require('inherits');
+var collections = require('pouchdb-collections');
 var EE = require('events').EventEmitter;
 var hasLocalStorage = require('./deps/env/hasLocalStorage');
 
@@ -21,15 +24,15 @@ function setUpEventEmitter(Pouch) {
 
   // these are created in constructor.js, and allow us to notify each DB with
   // the same name that it was destroyed, via the constructor object
-  var destructionListeners = Pouch._destructionListeners = new utils.Map();
+  var destructListeners = Pouch._destructionListeners = new collections.Map();
   Pouch.on('destroyed', function onConstructorDestroyed(name) {
-    if (!destructionListeners.has(name)) {
+    if (!destructListeners.has(name)) {
       return;
     }
-    destructionListeners.get(name).forEach(function (callback) {
+    destructListeners.get(name).forEach(function (callback) {
       callback();
     });
-    destructionListeners.delete(name);
+    destructListeners.delete(name);
   });
 }
 
@@ -42,6 +45,7 @@ PouchDB.parseAdapter = function (name, opts) {
     // the http adapter expects the fully qualified name
     name = /http(s?)/.test(match[1]) ? match[1] + '://' + match[2] : match[2];
     adapter = match[1];
+    /* istanbul ignore if */
     if (!PouchDB.adapters[adapter].valid()) {
       throw 'Invalid adapter';
     }
@@ -62,6 +66,7 @@ PouchDB.parseAdapter = function (name, opts) {
     for (var i = 0; i < PouchDB.preferredAdapters.length; ++i) {
       adapterName = PouchDB.preferredAdapters[i];
       if (adapterName in PouchDB.adapters) {
+        /* istanbul ignore if */
         if (skipIdb && adapterName === 'idb') {
           // log it, because this can be confusing during development
           console.log('PouchDB is downgrading "' + name + '" to WebSQL to' +
@@ -84,27 +89,6 @@ PouchDB.parseAdapter = function (name, opts) {
     adapter: adapterName
   };
 };
-
-PouchDB.destroy = utils.toPromise(function (name, opts, callback) {
-  console.log('PouchDB.destroy() is deprecated and will be removed. ' +
-              'Please use db.destroy() instead.');
-
-  if (typeof opts === 'function' || typeof opts === 'undefined') {
-    callback = opts;
-    opts = {};
-  }
-  if (name && typeof name === 'object') {
-    opts = name;
-    name = undefined;
-  }
-
-  new PouchDB(name, opts, function (err, db) {
-    if (err) {
-      return callback(err);
-    }
-    db.destroy(callback);
-  });
-});
 
 PouchDB.adapter = function (id, obj, addToPreferredAdapters) {
   if (obj.valid()) {
@@ -138,25 +122,11 @@ PouchDB.defaults = function (defaultOpts) {
       name = undefined;
     }
 
-    opts = utils.extend({}, defaultOpts, opts);
+    opts = extend({}, defaultOpts, opts);
     PouchDB.call(this, name, opts, callback);
   }
 
-  utils.inherits(PouchAlt, PouchDB);
-
-  PouchAlt.destroy = utils.toPromise(function (name, opts, callback) {
-    if (typeof opts === 'function' || typeof opts === 'undefined') {
-      callback = opts;
-      opts = {};
-    }
-
-    if (name && typeof name === 'object') {
-      opts = name;
-      name = undefined;
-    }
-    opts = utils.extend({}, defaultOpts, opts);
-    return PouchDB.destroy(name, opts, callback);
-  });
+  inherits(PouchAlt, PouchDB);
 
   setUpEventEmitter(PouchAlt);
 

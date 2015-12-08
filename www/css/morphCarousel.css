@@ -46,7 +46,7 @@ morph-carousel {
   position: absolute;
   text-align: center;
   font-size: 22px;
-  padding: 12px 0;
+  padding: 0;
   height: auto;
   box-sizing: border-box;
   -webkit-backface-visibility: hidden;

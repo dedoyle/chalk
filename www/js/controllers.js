@@ -4,9 +4,9 @@ angular.module('starter.controllers', [])
 
 .controller('ExpenseController', ExpenseController)
 
-.controller('EditController', EditController)
-
 .controller('DetailController', DetailController)
+
+.controller('EditController', EditController)
 
 .controller('DescriptionController', DescriptionController)
 
@@ -27,11 +27,6 @@ function AppCtrl($scope, $ionicModal, $timeout) {
 
   // Form data for the login modal
   $scope.loginData = {};
-
-  $scope.$on('$ionicView.enter', function (e) {
-    var t = new Date();
-    $scope.today = t.getFullYear() + '/' + t.getMonth() + '/' + t.getDate();
-  });
 
   // Create the login modal that we will use later
   $ionicModal.fromTemplateUrl('templates/login.html', {
@@ -61,78 +56,125 @@ function AppCtrl($scope, $ionicModal, $timeout) {
   };
 }
 
-ExpenseController.$inject = ['$scope', '$rootScope', 'ExpenseService', 'SharedDataService', '$state', '$ionicPlatform', '$ionicPopup', '$filter'];
+ExpenseController.$inject = ['$scope', '$rootScope', 'ExpenseService', 'BudgetService', '$state', '$ionicPlatform', '$ionicPopup', '$filter', '$ionicSlideBoxDelegate'];
 
-function ExpenseController($scope, $rootScope, ExpenseService, SharedDataService, $state, $ionicPlatform, $ionicPopup, $filter) {
-  var vm = this;
+function ExpenseController($scope, $rootScope, ExpenseService, BudgetService, $state, $ionicPlatform, $ionicPopup, $filter, $ionicSlideBoxDelegate) {
+  var vm = this,
+    items;
 
-  $ionicPlatform.ready(function () {
-    ExpenseService.initDB();
+  vm.lists = [];
+  vm.currDay = moment().format("YYYY-MM-DD");
+  vm.currIndex = 0;
 
-    ExpenseService.getAllExpense().then(function (expenses) {
-      vm.items = expenses;
-    });
-
-  });
-
-  vm.budget = SharedDataService.getBudget();
-  vm.remainingBudget = SharedDataService.getRemainingBudget();
-  vm.percentage = vm.budget !== 0 ? (vm.remainingBudget / vm.budget) * 100 : 0;
+  updateLists();
+  refreshBudget();
 
   vm.goToAddExpense = goToAddExpense;
 
   vm.goToDetail = goToDetail;
 
+  vm.slideHasChanged = slideHasChanged;
+
   vm.cleanup = cleanup;
+
+  $rootScope.$on('budget.updated', refreshBudget);
 
   function cleanup() {
     ExpenseService.destroyexpense();
+    BudgetService.destroyBudget();
+  }
+
+  function updateLists() {
+    ExpenseService.getExpenseList(vm.currDay).then(function (expenses) {
+      vm.lists.unshift({
+        currday: vm.currDay,
+        items: expenses[vm.currDay]
+      });
+      $ionicSlideBoxDelegate.update();
+    });
+  }
+
+  function slideHasChanged(index) {
+    vm.currDay = vm.lists[index].currday;
   }
 
   function goToAddExpense() {
-    var action = {
-      name: '新增支出',
-      isAdd: true
-    };
-    SharedDataService.setAction(action);
-    $state.go('app.add-or-edit');
+    $state.go('app.add-or-edit', {
+      day: vm.currDay,
+      action: '新增支出',
+      isAdd: '1'
+    });
   }
 
   function goToDetail(item) {
-    SharedDataService.setExpense(item);
-    $state.go('app.detail');
+    $state.go('app.detail', {
+      day: vm.currDay,
+      expenseId: item._id,
+      rev: item._rev
+    });
+  }
+
+  function refreshBudget() {
+    BudgetService.getBudget().then(function (budget) {
+      vm.budget = budget;
+      vm.percentage = budget !== 0 ? (parseInt(budget.remainingBudget) / parseInt(budget.money)) : 0;
+    });
   }
 }
 
-EditController.$inject = ['$scope', '$rootScope', '$state', '$ionicPopup', 'ExpenseService', 'SharedDataService', 'TagService', 'AcountService', 'regularExpensesService', '$ionicHistory'];
+DetailController.$inject = ['$scope', '$state', '$stateParams', 'expense', 'ExpenseService', 'BudgetService'];
 
-function EditController($scope, $rootScope, $state, $ionicPopup, ExpenseService, SharedDataService, TagService, AcountService, regularExpensesService, $ionicHistory) {
+function DetailController($scope, $state, $stateParams, expense, ExpenseService, BudgetService) {
+  var vm = this;
 
-  var vm = this,
-    now = new Date();
+  vm.item = expense;
+  vm.goToEditExpense = goToEditExpense;
+  vm.deleteItem = deleteItem;
 
-  vm.action = SharedDataService.getAction();
+  function goToEditExpense() {
+    $state.go('app.add-or-edit', {
+      expenseId: vm.item._id,
+      action: '编辑',
+      isAdd: '0',
+      day: $stateParams.day
+    });
+  }
 
-  if (vm.action.isAdd) {
-    vm.expense = {
+  function deleteItem(item) {
+    ExpenseService.deleteExpense(item);
+    BudgetService.reduceBudgetBy(item.money);
+    $state.go('app.expense');
+  }
+}
+
+EditController.$inject = ['$scope', '$rootScope', '$state', '$stateParams', 'expense', 'action', '$ionicPopup', 'ExpenseService', 'BudgetService', 'TagService', 'AcountService', 'SharedDataService', 'regularExpensesService', '$ionicHistory'];
+
+function EditController($scope, $rootScope, $state, $stateParams, expense, action, $ionicPopup, ExpenseService, BudgetService, TagService, AcountService, SharedDataService, regularExpensesService, $ionicHistory) {
+
+  var vm = this;
+
+  vm.showkeyboard = true;
+  vm.action = action;
+  vm.tag_list = TagService.getTagList();
+  vm.accounts = AcountService.getAccounts();
+  vm.regularExpenses = regularExpensesService.getRegularExpenses();
+  $rootScope.$on('description.changed', updateDescription);
+
+  if ('1' === vm.action.isAdd) {
+    vm.item = {
       money: '0',
       icon: 'ion-coffee',
       name: '早餐',
       description: '',
       account: '现金',
       regularExpense: '无',
-      date: now
+      day: $stateParams.day,
+      date: moment().format()
     };
   } else {
-    vm.expense = SharedDataService.getExpense();
+    vm.item = expense;
+    vm.oldExpense = vm.item.money;
   }
-
-  vm.showkeyboard = true;
-  vm.tag_list = TagService.getTagList();
-  vm.accounts = AcountService.getAccounts();
-  vm.regularExpenses = regularExpensesService.getRegularExpenses();
-
-  $rootScope.$on('description.changed', updateDescription);
 
   vm.select = select;
 
@@ -147,21 +189,25 @@ function EditController($scope, $rootScope, $state, $ionicPopup, ExpenseService,
   vm.saveExpense = saveExpense;
 
   function updateDescription() {
-    vm.expense.description = SharedDataService.getDescription();
+    vm.item.description = SharedDataService.getDescription();
   }
 
   function select(name, icon) {
-    vm.expense.name = name;
-    vm.expense.icon = icon;
+    vm.item.name = name;
+    vm.item.icon = icon;
   }
 
   function isSelected(name) {
-    return vm.expense.name === name;
+    return vm.item.name === name;
   }
 
   function goToDescription() {
-    SharedDataService.setDescription(vm.expense.description);
-    $state.go('app.description');
+    SharedDataService.setDescription(vm.item.description);
+    $state.go('app.description', {
+      expenseId: vm.item._id,
+      action: '编辑',
+      isAdd: '0'
+    });
   }
 
   function showAccounts() {
@@ -189,10 +235,12 @@ function EditController($scope, $rootScope, $state, $ionicPopup, ExpenseService,
   }
 
   function saveExpense() {
-    if (vm.action.isAdd) {
-      ExpenseService.addExpense(vm.expense);
+    if ('1' === vm.action.isAdd) {
+      ExpenseService.addExpense(vm.item);
+      BudgetService.reduceBudgetBy(-vm.item.money);
     } else {
-      ExpenseService.updateExpense(vm.expense);
+      ExpenseService.updateExpense(vm.item);
+      BudgetService.reduceBudgetBy(vm.oldExpense - vm.item.money);
       $ionicHistory.nextViewOptions({
         disableBack: true
       });
@@ -201,50 +249,25 @@ function EditController($scope, $rootScope, $state, $ionicPopup, ExpenseService,
   }
 }
 
-DescriptionController.$inject = ['$scope', '$rootScope', '$state', 'SharedDataService'];
+DescriptionController.$inject = ['$scope', '$rootScope', '$state', '$stateParams', 'SharedDataService'];
 
-function DescriptionController($scope, $rootScope, $state, SharedDataService) {
-  var vm = this;
+function DescriptionController($scope, $rootScope, $state, $stateParams, SharedDataService) {
+  var vm = this,
+    itemId = $stateParams.expenseId,
+    action = $stateParams.action,
+    isAdd = $stateParams.isAdd;
 
   vm.description = SharedDataService.getDescription();
 
   vm.saveDescription = saveDescription;
 
-  $rootScope.$on('description.changed', updateDescription);
-
   function saveDescription() {
     SharedDataService.setDescription(vm.description);
-    $state.go('app.add-or-edit');
-  }
-
-  function updateDescription() {
-    vm.description = SharedDataService.getDescription();
-  }
-}
-
-DetailController.$inject = ['$scope', '$state', 'SharedDataService', 'ExpenseService'];
-
-function DetailController($scope, $state, SharedDataService, ExpenseService) {
-  var vm = this;
-
-  vm.item = SharedDataService.getExpense();
-  vm.goToEditExpense = goToEditExpense;
-  vm.deleteItem = deleteItem;
-
-  return vm;
-
-  function goToEditExpense() {
-    var action = {
-      name: '编辑',
-      isAdd: false
-    };
-    SharedDataService.setAction(action);
-    $state.go('app.add-or-edit');
-  }
-
-  function deleteItem(item) {
-    ExpenseService.deleteExpense(item);
-    $state.go('app.expense');
+    $state.go('app.add-or-edit', {
+      expenseId: itemId,
+      action: action,
+      isAdd: isAdd
+    });
   }
 }
 
@@ -259,19 +282,37 @@ function SettingController($scope, $state) {
     $state.go('app.set-budget');
   }
 }
-SetBudgetController.$inject = ['$scope', '$state'];
-function SetBudgetController($scope, $state) {
-  var vm = this,
-      i = 1;
+SetBudgetController.$inject = ['$scope', '$ionicPlatform', 'BudgetService', '$timeout'];
 
-  vm.money = 0;
+function SetBudgetController($scope, $ionicPlatform, BudgetService, $timeout) {
+  var vm = this,
+    i = 1,
+    delayInMs = 1000,
+    timeoutPromise = null;
+
+  $ionicPlatform.ready(function () {
+    BudgetService.getBudget().then(function (budget) {
+      vm.budget = budget;
+
+      $scope.$watch(function () {
+        return vm.budget;
+      }, saveBudget, true);
+    });
+  });
+
   vm.days = [];
 
-  for(; i < 31; i++) {
-    vm.days.push({number: i});
+  for (; i < 31; i++) {
+    vm.days.push(i);
   }
 
-  vm.data = {
-    selectedDay: vm.days[0]
-  };
+  vm.showkeyboard = true;
+  vm.saveBudget = saveBudget;
+
+  function saveBudget() {
+    $timeout.cancel(timeoutPromise);
+    timeoutPromise = $timeout(function () {
+      BudgetService.updateBudget(vm.budget);
+    }, delayInMs);
+  }
 }

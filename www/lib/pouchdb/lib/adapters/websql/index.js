@@ -1,6 +1,10 @@
 'use strict';
 
-var utils = require('../../utils');
+var extend = require('js-extend').extend;
+var clone = require('../../deps/clone');
+var uuid = require('../../deps/uuid');
+var pick = require('../../deps/pick');
+var filterChange = require('../../deps/filterChange');
 var isDeleted = require('../../deps/docs/isDeleted');
 var isLocalId = require('../../deps/docs/isLocalId');
 var errors = require('../../deps/errors');
@@ -9,6 +13,13 @@ var binStringToBlob = require('../../deps/binary/binaryStringToBlobOrBuffer');
 var hasLocalStorage = require('../../deps/env/hasLocalStorage');
 var collectConflicts = require('../../deps/merge/collectConflicts');
 var traverseRevTree = require('../../deps/merge/traverseRevTree');
+var safeJsonParse = require('../../deps/safeJsonParse');
+var safeJsonStringify = require('../../deps/safeJsonStringify');
+var Changes = require('../../changesHandler');
+var isCordova = require('../../deps/isCordova');
+var toPromise = require('../../deps/toPromise');
+var base64 = require('../../deps/binary/base64');
+var btoa = base64.btoa;
 
 var websqlConstants = require('./constants');
 var websqlUtils = require('./utils');
@@ -27,7 +38,7 @@ var stringifyDoc = websqlUtils.stringifyDoc;
 var unstringifyDoc = websqlUtils.unstringifyDoc;
 var select = websqlUtils.select;
 var compactRevs = websqlUtils.compactRevs;
-var unknownError = websqlUtils.unknownError;
+var websqlError = websqlUtils.websqlError;
 var getSize = websqlUtils.getSize;
 var openDB = websqlUtils.openDB;
 
@@ -48,8 +59,8 @@ function fetchAttachmentsIfNecessary(doc, opts, api, txn, cb) {
     var attObj = doc._attachments[att];
     var attOpts = {binary: opts.binary, ctx: txn};
     api._getAttachment(attObj, attOpts, function (_, data) {
-      doc._attachments[att] = utils.extend(
-        utils.pick(attObj, ['digest', 'content_type']),
+      doc._attachments[att] = extend(
+        pick(attObj, ['digest', 'content_type']),
         { data: data }
       );
       checkDone();
@@ -104,7 +115,7 @@ function WebSqlPouch(opts, callback) {
   api._docCount = -1; // cache sqlite count(*) for performance
   api._name = opts.name;
 
-  var db = openDB({
+  var openDBResult = openDB({
     name: api._name,
     version: POUCH_VERSION,
     description: api._name,
@@ -113,9 +124,11 @@ function WebSqlPouch(opts, callback) {
     createFromLocation: opts.createFromLocation,
     androidDatabaseImplementation: opts.androidDatabaseImplementation
   });
-  if (!db) {
-    return callback(errors.error(errors.UNKNOWN_ERROR));
-  } else if (typeof db.readTransaction !== 'function') {
+  if (openDBResult.error) {
+    return websqlError(callback)(openDBResult.error);
+  }
+  var db = openDBResult.db;
+  if (typeof db.readTransaction !== 'function') {
     // doesn't exist in sqlite plugin
     db.readTransaction = db.transaction;
   }
@@ -419,7 +432,7 @@ function WebSqlPouch(opts, callback) {
             // mark the db version, and new dbid
             var initSeq = 'INSERT INTO ' + META_STORE +
               ' (db_version, dbid) VALUES (?,?)';
-            instanceId = utils.uuid();
+            instanceId = uuid();
             var initSeqArgs = [ADAPTER_VERSION, instanceId];
             tx.executeSql(initSeq, initSeqArgs, function () {
               onGetInstanceId();
@@ -473,7 +486,7 @@ function WebSqlPouch(opts, callback) {
         // then get the version
         fetchVersion(tx);
       });
-    }, unknownError(callback), dbCreated);
+    }, websqlError(callback), dbCreated);
   }
 
   function fetchVersion(tx) {
@@ -500,7 +513,7 @@ function WebSqlPouch(opts, callback) {
     });
   }
 
-  if (utils.isCordova()) {
+  if (isCordova()) {
     //to wait until custom api is made in pouch.adapters before doing setup
     window.addEventListener(api._name + '_pouch', function cordova_init() {
       window.removeEventListener(api._name + '_pouch', cordova_init, false);
@@ -514,7 +527,7 @@ function WebSqlPouch(opts, callback) {
     return 'websql';
   };
 
-  api._id = utils.toPromise(function (callback) {
+  api._id = toPromise(function (callback) {
     callback(null, instanceId);
   });
 
@@ -533,7 +546,7 @@ function WebSqlPouch(opts, callback) {
           });
         });
       });
-    }, unknownError(callback));
+    }, websqlError(callback));
   };
 
   api._bulkDocs = function (req, opts, callback) {
@@ -547,7 +560,7 @@ function WebSqlPouch(opts, callback) {
     var tx = opts.ctx;
     if (!tx) {
       return db.readTransaction(function (txn) {
-        api._get(id, utils.extend({ctx: txn}, opts), callback);
+        api._get(id, extend({ctx: txn}, opts), callback);
       });
     }
 
@@ -578,7 +591,7 @@ function WebSqlPouch(opts, callback) {
         return finish();
       }
       var item = results.rows.item(0);
-      metadata = utils.safeJsonParse(item.metadata);
+      metadata = safeJsonParse(item.metadata);
       if (item.deleted && !opts.rev) {
         err = errors.error(errors.MISSING_DOC, 'deleted');
         return finish();
@@ -672,7 +685,7 @@ function WebSqlPouch(opts, callback) {
         tx.executeSql(sql, sqlArgs, function (tx, result) {
           for (var i = 0, l = result.rows.length; i < l; i++) {
             var item = result.rows.item(i);
-            var metadata = utils.safeJsonParse(item.metadata);
+            var metadata = safeJsonParse(item.metadata);
             var id = metadata.id;
             var data = unstringifyDoc(item.data, id, item.rev);
             var winningRev = data._rev;
@@ -701,7 +714,7 @@ function WebSqlPouch(opts, callback) {
           }
         });
       });
-    }, unknownError(callback), function () {
+    }, websqlError(callback), function () {
       callback(null, {
         total_rows: totalRows,
         offset: opts.skip,
@@ -711,10 +724,10 @@ function WebSqlPouch(opts, callback) {
   };
 
   api._changes = function (opts) {
-    opts = utils.clone(opts);
+    opts = clone(opts);
 
     if (opts.continuous) {
-      var id = api._name + ':' + utils.uuid();
+      var id = api._name + ':' + uuid();
       WebSqlPouch.Changes.addListener(api._name, id, api, opts);
       WebSqlPouch.Changes.notify(api._name);
       return {
@@ -735,7 +748,10 @@ function WebSqlPouch(opts, callback) {
     }
 
     var returnDocs;
-    if ('returnDocs' in opts) {
+    if ('return_docs' in opts) {
+      returnDocs = opts.return_docs;
+    } else if ('returnDocs' in opts) {
+      // TODO: Remove 'returnDocs' in favor of 'return_docs' in a future release
       returnDocs = opts.returnDocs;
     } else {
       returnDocs = true;
@@ -768,7 +784,7 @@ function WebSqlPouch(opts, callback) {
 
       var sql = select(selectStmt, from, joiner, criteria, orderBy);
 
-      var filter = utils.filterChange(opts);
+      var filter = filterChange(opts);
       if (!opts.view && !opts.filter) {
         // we can just limit in the query
         sql += ' LIMIT ' + limit;
@@ -784,7 +800,7 @@ function WebSqlPouch(opts, callback) {
           }
           for (var i = 0, l = result.rows.length; i < l; i++) {
             var item = result.rows.item(i);
-            var metadata = utils.safeJsonParse(item.metadata);
+            var metadata = safeJsonParse(item.metadata);
             lastSeq = item.maxSeq;
 
             var doc = unstringifyDoc(item.winningDoc, metadata.id,
@@ -816,7 +832,7 @@ function WebSqlPouch(opts, callback) {
             }
           }
         });
-      }, unknownError(opts.complete), function () {
+      }, websqlError(opts.complete), function () {
         if (!opts.continuous) {
           opts.complete(null, {
             results: results,
@@ -853,7 +869,7 @@ function WebSqlPouch(opts, callback) {
       if (opts.binary) {
         res = binStringToBlob(data, type);
       } else {
-        res = utils.btoa(data);
+        res = btoa(data);
       }
       callback(null, res);
     });
@@ -866,7 +882,7 @@ function WebSqlPouch(opts, callback) {
         if (!result.rows.length) {
           callback(errors.error(errors.MISSING_DOC));
         } else {
-          var data = utils.safeJsonParse(result.rows.item(0).metadata);
+          var data = safeJsonParse(result.rows.item(0).metadata);
           callback(null, data.rev_tree);
         }
       });
@@ -882,7 +898,7 @@ function WebSqlPouch(opts, callback) {
       // update doc store
       var sql = 'SELECT json AS metadata FROM ' + DOC_STORE + ' WHERE id = ?';
       tx.executeSql(sql, [docId], function (tx, result) {
-        var metadata = utils.safeJsonParse(result.rows.item(0).metadata);
+        var metadata = safeJsonParse(result.rows.item(0).metadata);
         traverseRevTree(metadata.rev_tree, function (isLeaf, pos,
                                                            revHash, ctx, opts) {
           var rev = pos + '-' + revHash;
@@ -892,11 +908,11 @@ function WebSqlPouch(opts, callback) {
         });
 
         var sql = 'UPDATE ' + DOC_STORE + ' SET json = ? WHERE id = ?';
-        tx.executeSql(sql, [utils.safeJsonStringify(metadata), docId]);
+        tx.executeSql(sql, [safeJsonStringify(metadata), docId]);
       });
 
       compactRevs(revs, docId, tx);
-    }, unknownError(callback), function () {
+    }, websqlError(callback), function () {
       callback();
     });
   };
@@ -962,7 +978,7 @@ function WebSqlPouch(opts, callback) {
     if (opts.ctx) {
       putLocal(opts.ctx);
     } else {
-      db.transaction(putLocal, unknownError(callback), function () {
+      db.transaction(putLocal, websqlError(callback), function () {
         if (ret) {
           callback(null, ret);
         }
@@ -994,7 +1010,7 @@ function WebSqlPouch(opts, callback) {
     if (opts.ctx) {
       removeLocal(opts.ctx);
     } else {
-      db.transaction(removeLocal, unknownError(callback), function () {
+      db.transaction(removeLocal, websqlError(callback), function () {
         if (ret) {
           callback(null, ret);
         }
@@ -1010,7 +1026,7 @@ function WebSqlPouch(opts, callback) {
       stores.forEach(function (store) {
         tx.executeSql('DROP TABLE IF EXISTS ' + store, []);
       });
-    }, unknownError(callback), function () {
+    }, websqlError(callback), function () {
       if (hasLocalStorage()) {
         delete window.localStorage['_pouch__websqldb_' + api._name];
         delete window.localStorage[api._name];
@@ -1022,6 +1038,6 @@ function WebSqlPouch(opts, callback) {
 
 WebSqlPouch.valid = websqlUtils.valid;
 
-WebSqlPouch.Changes = new utils.Changes();
+WebSqlPouch.Changes = new Changes();
 
 module.exports = WebSqlPouch;

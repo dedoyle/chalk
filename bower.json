@@ -3,5 +3,10 @@
   "private": "true",
   "devDependencies": {
     "ionic": "driftyco/ionic-bower#1.1.0"
+  },
+  "dependencies": {
+    "moment": "~2.10.6",
+    "angular-once": "~0.1.9",
+    "pouchdb": "~5.1.0"
   }
 }

@@ -58,6 +58,16 @@ angular.module('morphCarousel', [])
                 scope.carouselRotation = 'rotateY(0deg)';
             }
 
+            scope.$watch('::selectedItem', function() {
+              for (var i = 0, len = scope.items.length; i < len; i++) {
+                    if (angular.equals(scope.selectedItem, scope.items[i])) {
+                        var angle = 360 - i * minRotateAngle;
+                        scope.carouselRotation = 'rotateY(' + angle + 'deg)';
+                        break;
+                    }
+                }
+             });
+
             $ionicGesture.on('drag', function (ev) {
                 var len = Math.ceil(scope.items.length / 2);
                 currentAngle = carouselRotateAngle + ev.gesture.deltaX / el[0].offsetWidth * ( minRotateAngle * len );

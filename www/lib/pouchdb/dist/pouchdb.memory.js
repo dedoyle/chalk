@@ -1,4 +1,4 @@
-//    PouchDB in-memory plugin 4.0.3
+//    PouchDB in-memory plugin 5.1.0
 //    Based on MemDOWN: https://github.com/rvagg/memdown
 //
 //    (c) 2012-2015 Dale Harvey and the PouchDB team
@@ -8,52 +8,52 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
 'use strict';
 
-module.exports = _dereq_(52);
-},{"52":52}],2:[function(_dereq_,module,exports){
+module.exports = _dereq_(47);
+},{"47":47}],2:[function(_dereq_,module,exports){
 'use strict';
 
-var createBlob = _dereq_(19);
+var createBlob = _dereq_(12);
 
 module.exports = function createEmptyBlobOrBuffer(type) {
   return createBlob([''], {type: type});
 };
-},{"19":19}],3:[function(_dereq_,module,exports){
+},{"12":12}],3:[function(_dereq_,module,exports){
 (function (process,Buffer){
 'use strict';
 
-var levelup = _dereq_(114);
-var sublevel = _dereq_(87);
-var through = _dereq_(163).obj;
+var levelup = _dereq_(107);
+var sublevel = _dereq_(80);
+var through = _dereq_(156).obj;
 
-var originalLeveldown;
-function requireLeveldown() {
-  // wrapped try/catch inside a function to confine code
-  // de-optimalization
-  try {
-    originalLeveldown = _dereq_(55);
-  } catch (e) {}
-}
-requireLeveldown();
-
-var errors = _dereq_(31);
-var utils = _dereq_(53);
-var calculateWinningRev = _dereq_(41);
-var traverseRevTree = _dereq_(40);
-var collectConflicts = _dereq_(35);
-var isDeleted = _dereq_(24);
-var isLocalId = _dereq_(25);
-var processDocs = _dereq_(27);
-var md5 = _dereq_(34);
-var migrate = _dereq_(42);
-var Deque = _dereq_(83);
-var atob = _dereq_(16).atob;
-var functionName = _dereq_(33);
+var errors = _dereq_(24);
+var clone = _dereq_(16);
+var Changes = _dereq_(7);
+var uuid = _dereq_(43);
+var collections = _dereq_(143);
+var filterChange = _dereq_(25);
+var getArguments = _dereq_(48);
+var safeJsonParse = _dereq_(40);
+var safeJsonStringify = _dereq_(41);
+var calculateWinningRev = _dereq_(35);
+var traverseRevTree = _dereq_(34);
+var compactTree = _dereq_(30);
+var collectConflicts = _dereq_(28);
+var isDeleted = _dereq_(17);
+var isLocalId = _dereq_(18);
+var parseDoc = _dereq_(19);
+var processDocs = _dereq_(20);
+var md5 = _dereq_(27);
+var migrate = _dereq_(36);
+var Deque = _dereq_(75);
+var atob = _dereq_(9).atob;
+var functionName = _dereq_(26);
 var readAsBluffer = _dereq_(5);
 var prepareAttachmentForStorage = _dereq_(4);
 var createEmptyBluffer = _dereq_(2);
+var Promise = _dereq_(39);
 
 var binStringToBluffer =
-  _dereq_(18);
+  _dereq_(11);
 
 var LevelTransaction = _dereq_(6);
 
@@ -66,7 +66,7 @@ var META_STORE = 'meta-store';
 
 // leveldb barks if we try to open a db multiple times
 // so we cache opened connections here for initstore()
-var dbStores = new utils.Map();
+var dbStores = new collections.Map();
 
 // store the value of update_seq in the by-sequence store the key name will
 // never conflict, since the keys in the by-sequence store are integers
@@ -77,10 +77,39 @@ var UUID_KEY = '_local_uuid';
 var MD5_PREFIX = 'md5-';
 
 var safeJsonEncoding = {
-  encode: utils.safeJsonStringify,
-  decode: utils.safeJsonParse,
+  encode: safeJsonStringify,
+  decode: safeJsonParse,
   buffer: false,
   type: 'cheap-json'
+};
+
+// require leveldown. provide verbose output on error as it is the default
+// nodejs adapter, which we do not provide for the user
+/* istanbul ignore next */
+var requireLeveldown = function () {
+  try {
+    return _dereq_(49);
+  } catch (err) {
+    /*jshint -W022 */
+    err = err || 'leveldown import error';
+    if (err.code === 'MODULE_NOT_FOUND') {
+      // handle leveldown not installed case
+      return new Error([
+        'the \'leveldown\' package is not available. install it, or,',
+        'specify another storage backend using the \'db\' option'
+      ].join(' '));
+    } else if (err.message && err.message.match('Module version mismatch')) {
+      // handle common user enviornment error
+      return new Error([
+        err.message,
+        'This generally implies that leveldown was built with a different',
+        'version of node than that which is running now.  You may try',
+        'fully removing and reinstalling PouchDB or leveldown to resolve.'
+      ].join(' '));
+    }
+    // handle general internal nodejs require error
+    return new Error(err.toString() + ': unable to import leveldown');
+  }
 };
 
 // winningRev and deleted are performance-killers, but
@@ -97,10 +126,11 @@ function getIsDeleted(metadata, winningRev) {
 
 function fetchAttachment(att, stores, opts) {
   var type = att.content_type;
-  return new utils.Promise(function (resolve, reject) {
+  return new Promise(function (resolve, reject) {
     stores.binaryStore.get(att.digest, function (err, buffer) {
       var data;
       if (err) {
+        /* istanbul ignore if */
         if (err.name !== 'NotFoundError') {
           return reject(err);
         } else {
@@ -141,13 +171,13 @@ function fetchAttachments(results, stores, opts) {
     });
   });
 
-  return utils.Promise.all(atts.map(function (att) {
+  return Promise.all(atts.map(function (att) {
     return fetchAttachment(att, stores, opts);
   }));
 }
 
 function LevelPouch(opts, callback) {
-  opts = utils.clone(opts);
+  opts = clone(opts);
   var api = this;
   var instanceId;
   var stores = {};
@@ -157,15 +187,14 @@ function LevelPouch(opts, callback) {
     opts.createIfMissing = true;
   }
 
-  var leveldown = opts.db || originalLeveldown;
-  if (!leveldown) {
-    return callback(new Error(
-      "leveldown not available " +
-      "(specify another backend using the 'db' option)"
-    ));
+  var leveldown = opts.db || requireLeveldown();
+  /* istanbul ignore if */
+  if (leveldown instanceof Error) {
+    return callback(leveldown);
   }
 
   if (typeof leveldown.destroy !== 'function') {
+    /* istanbul ignore next */
     leveldown.destroy = function (name, cb) { cb(); };
   }
   var dbStore;
@@ -173,7 +202,7 @@ function LevelPouch(opts, callback) {
   if (dbStores.has(leveldownName)) {
     dbStore = dbStores.get(leveldownName);
   } else {
-    dbStore = new utils.Map();
+    dbStore = new collections.Map();
     dbStores.set(leveldownName, dbStore);
   }
   if (dbStore.has(name)) {
@@ -181,6 +210,7 @@ function LevelPouch(opts, callback) {
     afterDBCreated();
   } else {
     dbStore.set(name, sublevel(levelup(name, opts, function (err) {
+      /* istanbul ignore if */
       if (err) {
         dbStore["delete"](name);
         return callback(err);
@@ -212,7 +242,7 @@ function LevelPouch(opts, callback) {
         stores.metaStore.get(DOC_COUNT_KEY, function (err, value) {
           db._docCount = !err ? value : 0;
           stores.metaStore.get(UUID_KEY, function (err, value) {
-            instanceId = !err ? value : utils.uuid();
+            instanceId = !err ? value : uuid();
             stores.metaStore.put(UUID_KEY, instanceId, function (err, value) {
               process.nextTick(function () {
                 callback(null, api);
@@ -225,6 +255,7 @@ function LevelPouch(opts, callback) {
   }
 
   function countDocs(callback) {
+    /* istanbul ignore if */
     if (db.isClosed()) {
       return callback(new Error('database is closed'));
     }
@@ -285,7 +316,7 @@ function LevelPouch(opts, callback) {
     readTasks.forEach(function (readTask) {
       var args = readTask.args;
       var callback = args[args.length - 1];
-      args[args.length - 1] = utils.getArguments(function (cbArgs) {
+      args[args.length - 1] = getArguments(function (cbArgs) {
         callback.apply(null, cbArgs);
         if (++numDone === readTasks.length) {
           process.nextTick(function () {
@@ -306,7 +337,7 @@ function LevelPouch(opts, callback) {
   function runWriteOperation(firstTask) {
     var args = firstTask.args;
     var callback = args[args.length - 1];
-    args[args.length - 1] = utils.getArguments(function (cbArgs) {
+    args[args.length - 1] = getArguments(function (cbArgs) {
       callback.apply(null, cbArgs);
       process.nextTick(function () {
         db._queue.shift();
@@ -323,7 +354,7 @@ function LevelPouch(opts, callback) {
   // as e.g. compaction needing to have a lock on the database while
   // it updates stuff. in the future we can revisit this.
   function writeLock(fun) {
-    return utils.getArguments(function (args) {
+    return getArguments(function (args) {
       db._queue.push({
         fun: fun,
         args: args,
@@ -338,7 +369,7 @@ function LevelPouch(opts, callback) {
 
   // same as the writelock, but multiple can run at once
   function readLock(fun) {
-    return utils.getArguments(function (args) {
+    return getArguments(function (args) {
       db._queue.push({
         fun: fun,
         args: args,
@@ -360,7 +391,7 @@ function LevelPouch(opts, callback) {
   }
 
   api._get = readLock(function (id, opts, callback) {
-    opts = utils.clone(opts);
+    opts = clone(opts);
 
     stores.docStore.get(id, function (err, metadata) {
 
@@ -382,12 +413,14 @@ function LevelPouch(opts, callback) {
         if (!doc) {
           return callback(errors.error(errors.MISSING_DOC));
         }
+        /* istanbul ignore if */
         if ('_id' in doc && doc._id !== metadata.id) {
           // this failing implies something very wrong
           return callback(new Error('wrong doc returned'));
         }
         doc._id = metadata.id;
         if ('_rev' in doc) {
+          /* istanbul ignore if */
           if (doc._rev !== rev) {
             // this failing implies something very wrong
             return callback(new Error('wrong doc returned'));
@@ -409,6 +442,7 @@ function LevelPouch(opts, callback) {
 
     stores.binaryStore.get(digest, function (err, attach) {
       if (err) {
+        /* istanbul ignore if */
         if (err.name !== 'NotFoundError') {
           return callback(err);
         }
@@ -427,7 +461,7 @@ function LevelPouch(opts, callback) {
   api._bulkDocs = writeLock(function (req, opts, callback) {
     var newEdits = opts.new_edits;
     var results = new Array(req.docs.length);
-    var fetchedDocs = new utils.Map();
+    var fetchedDocs = new collections.Map();
     var txn = new LevelTransaction();
     var docCountDelta = 0;
     var newUpdateSeq = db._updateSeq;
@@ -438,7 +472,7 @@ function LevelPouch(opts, callback) {
       if (doc._id && isLocalId(doc._id)) {
         return doc;
       }
-      var newDoc = utils.parseDoc(doc, newEdits);
+      var newDoc = parseDoc.parseDoc(doc, newEdits);
 
       if (newDoc.metadata && !newDoc.metadata.rev_map) {
         newDoc.metadata.rev_map = {};
@@ -516,6 +550,7 @@ function LevelPouch(opts, callback) {
         }
         txn.get(stores.docStore, doc._id, function (err, info) {
           if (err) {
+            /* istanbul ignore if */
             if (err.name !== 'NotFoundError') {
               overallErr = err;
             }
@@ -529,15 +564,16 @@ function LevelPouch(opts, callback) {
 
     function autoCompact(callback) {
 
-      var promise = utils.Promise.resolve();
+      var promise = Promise.resolve();
 
       fetchedDocs.forEach(function (metadata, docId) {
         // TODO: parallelize, for now need to be sequential to
         // pass orphaned attachment tests
         promise = promise.then(function () {
-          return new utils.Promise(function (resolve, reject) {
-            var revs = utils.compactTree(metadata);
+          return new Promise(function (resolve, reject) {
+            var revs = compactTree(metadata);
             api._doCompactionNoLock(docId, revs, {ctx: txn}, function (err) {
+              /* istanbul ignore if */
               if (err) {
                 return reject(err);
               }
@@ -583,6 +619,7 @@ function LevelPouch(opts, callback) {
       function attachmentSaved(attachmentErr) {
         recv++;
         if (!err) {
+          /* istanbul ignore if */
           if (attachmentErr) {
             err = attachmentErr;
             callback2(err);
@@ -635,6 +672,7 @@ function LevelPouch(opts, callback) {
 
       function finish() {
         var seq = docInfo.metadata.rev_map[docInfo.metadata.rev];
+        /* istanbul ignore if */
         if (seq) {
           // check that there aren't any existing revisions with the same
           // revision id, else we shouldn't do anything
@@ -677,8 +715,9 @@ function LevelPouch(opts, callback) {
     function saveAttachmentRefs(id, rev, digest, callback) {
 
       function fetchAtt() {
-        return new utils.Promise(function (resolve, reject) {
+        return new Promise(function (resolve, reject) {
           txn.get(stores.attachmentStore, digest, function (err, oldAtt) {
+            /* istanbul ignore if */
             if (err && err.name !== 'NotFoundError') {
               return reject(err);
             }
@@ -704,7 +743,7 @@ function LevelPouch(opts, callback) {
           newAtt.refs[ref] = true;
         }
 
-        return new utils.Promise(function (resolve, reject) {
+        return new Promise(function (resolve, reject) {
           txn.batch([{
             type: 'put',
             prefix: stores.attachmentStore,
@@ -717,7 +756,7 @@ function LevelPouch(opts, callback) {
 
       // put attachments in a per-digest queue, to avoid two docs with the same
       // attachment overwriting each other
-      var queue = attachmentQueues[digest] || utils.Promise.resolve();
+      var queue = attachmentQueues[digest] || Promise.resolve();
       attachmentQueues[digest] = queue.then(function () {
         return fetchAtt().then(saveAtt).then(function (isNewAttachment) {
           callback(null, isNewAttachment);
@@ -734,6 +773,7 @@ function LevelPouch(opts, callback) {
       var rev = docInfo.metadata.rev;
 
       saveAttachmentRefs(id, rev, digest, function (err, isNewAttachment) {
+        /* istanbul ignore if */
         if (err) {
           return callback(err);
         }
@@ -756,6 +796,7 @@ function LevelPouch(opts, callback) {
     }
 
     function complete(err) {
+      /* istanbul ignore if */
       if (err) {
         return process.nextTick(function () {
           callback(err);
@@ -776,6 +817,7 @@ function LevelPouch(opts, callback) {
         }
       ]);
       txn.execute(db, function (err) {
+        /* istanbul ignore if */
         if (err) {
           return callback(err);
         }
@@ -797,6 +839,7 @@ function LevelPouch(opts, callback) {
         return callback(err);
       }
       fetchExistingDocs(function (err) {
+        /* istanbul ignore if */
         if (err) {
           return callback(err);
         }
@@ -806,8 +849,9 @@ function LevelPouch(opts, callback) {
     });
   });
   api._allDocs = readLock(function (opts, callback) {
-    opts = utils.clone(opts);
+    opts = clone(opts);
     countDocs(function (err, docCount) {
+      /* istanbul ignore if */
       if (err) {
         return callback(err);
       }
@@ -895,6 +939,7 @@ function LevelPouch(opts, callback) {
               doc.value.deleted = true;
               doc.doc = null;
             } else {
+              /* istanbul ignore next */
               return next();
             }
           }
@@ -911,7 +956,7 @@ function LevelPouch(opts, callback) {
           allDocsInner();
         }
       }, function (next) {
-        utils.Promise.resolve().then(function () {
+        Promise.resolve().then(function () {
           if (opts.include_docs && opts.attachments){
             return fetchAttachments(results, stores, opts);
           }
@@ -934,10 +979,10 @@ function LevelPouch(opts, callback) {
   });
 
   api._changes = function (opts) {
-    opts = utils.clone(opts);
+    opts = clone(opts);
 
     if (opts.continuous) {
-      var id = name + ':' + utils.uuid();
+      var id = name + ':' + uuid();
       LevelPouch.Changes.addListener(name, id, api, opts);
       LevelPouch.Changes.notify(name);
       return {
@@ -962,12 +1007,15 @@ function LevelPouch(opts, callback) {
       streamOpts.start = formatSeq(opts.since || 0);
     }
 
-    var docIds = opts.doc_ids && new utils.Set(opts.doc_ids);
-    var filter = utils.filterChange(opts);
-    var docIdsToMetadata = new utils.Map();
+    var docIds = opts.doc_ids && new collections.Set(opts.doc_ids);
+    var filter = filterChange(opts);
+    var docIdsToMetadata = new collections.Map();
 
     var returnDocs;
-    if ('returnDocs' in opts) {
+    if ('return_docs' in opts) {
+      returnDocs = opts.return_docs;
+    } else if ('returnDocs' in opts) {
+      // TODO: Remove 'returnDocs' in favor of 'return_docs' in a future release
       returnDocs = opts.returnDocs;
     } else {
       returnDocs = true;
@@ -976,6 +1024,7 @@ function LevelPouch(opts, callback) {
     function complete() {
       opts.done = true;
       if (returnDocs && opts.limit) {
+        /* istanbul ignore if */
         if (opts.limit < results.length) {
           results.length = opts.limit;
         }
@@ -1075,6 +1124,7 @@ function LevelPouch(opts, callback) {
       }
       // metadata not cached, have to go fetch it
       stores.docStore.get(doc._id, function (err, metadata) {
+        /* istanbul ignore if */
         if (opts.cancelled || opts.done || db.isClosed() ||
           isLocalId(metadata.id)) {
           return next();
@@ -1087,6 +1137,7 @@ function LevelPouch(opts, callback) {
         return next();
       }
       if (returnDocs && opts.limit) {
+        /* istanbul ignore if */
         if (opts.limit < results.length) {
           results.length = opts.limit;
         }
@@ -1107,10 +1158,12 @@ function LevelPouch(opts, callback) {
   };
 
   api._close = function (callback) {
+    /* istanbul ignore if */
     if (db.isClosed()) {
       return callback(errors.error(errors.NOT_OPEN));
     }
     db.close(function (err) {
+      /* istanbul ignore if */
       if (err) {
         callback(err);
       } else {
@@ -1147,6 +1200,7 @@ function LevelPouch(opts, callback) {
     var txn = opts.ctx || new LevelTransaction();
 
     txn.get(stores.docStore, docId, function (err, metadata) {
+      /* istanbul ignore if */
       if (err) {
         return callback(err);
       }
@@ -1170,10 +1224,12 @@ function LevelPouch(opts, callback) {
       var numDone = 0;
       var overallErr;
       function checkDone(err) {
+        /* istanbul ignore if */
         if (err) {
           overallErr = err;
         }
         if (++numDone === revs.length) { // done
+          /* istanbul ignore if */
           if (overallErr) {
             return callback(overallErr);
           }
@@ -1182,6 +1238,7 @@ function LevelPouch(opts, callback) {
       }
 
       function finish(err) {
+        /* istanbul ignore if */
         if (err) {
           return callback(err);
         }
@@ -1201,6 +1258,7 @@ function LevelPouch(opts, callback) {
         var numDone = 0;
         var overallErr;
         function checkDone(err) {
+          /* istanbul ignore if */
           if (err) {
             overallErr = err;
           }
@@ -1208,12 +1266,13 @@ function LevelPouch(opts, callback) {
             finish(overallErr);
           }
         }
-        var refsToDelete = new utils.Map();
+        var refsToDelete = new collections.Map();
         revs.forEach(function (rev) {
           refsToDelete.set(docId + '@' + rev, true);
         });
         possiblyOrphanedAttachments.forEach(function (digest) {
           txn.get(stores.attachmentStore, digest, function (err, attData) {
+            /* istanbul ignore if */
             if (err) {
               if (err.name === 'NotFoundError') {
                 return checkDone();
@@ -1259,6 +1318,7 @@ function LevelPouch(opts, callback) {
           prefix: stores.bySeqStore
         });
         txn.get(stores.bySeqStore, formatSeq(seq), function (err, doc) {
+          /* istanbul ignore if */
           if (err) {
             if (err.name === 'NotFoundError') {
               return checkDone();
@@ -1337,6 +1397,7 @@ function LevelPouch(opts, callback) {
         return callback(null, ret);
       }
       txn.execute(db, function (err) {
+        /* istanbul ignore if */
         if (err) {
           return callback(err);
         }
@@ -1366,6 +1427,7 @@ function LevelPouch(opts, callback) {
     var txn = opts.ctx || new LevelTransaction();
     txn.get(stores.localStore, doc._id, function (err, resp) {
       if (err) {
+        /* istanbul ignore if */
         if (err.name !== 'NotFoundError') {
           return callback(err);
         } else {
@@ -1386,6 +1448,7 @@ function LevelPouch(opts, callback) {
         return callback(null, ret);
       }
       txn.execute(db, function (err) {
+        /* istanbul ignore if */
         if (err) {
           return callback(err);
         }
@@ -1398,12 +1461,14 @@ function LevelPouch(opts, callback) {
   api._destroy = function (opts, callback) {
     var dbStore;
     var leveldownName = functionName(leveldown);
+    /* istanbul ignore else */
     if (dbStores.has(leveldownName)) {
       dbStore = dbStores.get(leveldownName);
     } else {
       return callDestroy(name, callback);
     }
 
+    /* istanbul ignore else */
     if (dbStore.has(name)) {
       LevelPouch.Changes.removeAllListeners(name);
 
@@ -1416,6 +1481,7 @@ function LevelPouch(opts, callback) {
     }
   };
   function callDestroy(name, cb) {
+    /* istanbul ignore else */
     if (typeof leveldown.destroy === 'function') {
       leveldown.destroy(name, cb);
     } else {
@@ -1431,31 +1497,31 @@ LevelPouch.valid = function () {
 
 LevelPouch.use_prefix = false;
 
-LevelPouch.Changes = new utils.Changes();
+LevelPouch.Changes = new Changes();
 
 module.exports = LevelPouch;
 
-}).call(this,_dereq_(62),_dereq_(56).Buffer)
-},{"114":114,"16":16,"163":163,"18":18,"2":2,"24":24,"25":25,"27":27,"31":31,"33":33,"34":34,"35":35,"4":4,"40":40,"41":41,"42":42,"5":5,"53":53,"55":55,"56":56,"6":6,"62":62,"83":83,"87":87}],4:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57),_dereq_(50).Buffer)
+},{"107":107,"11":11,"143":143,"156":156,"16":16,"17":17,"18":18,"19":19,"2":2,"20":20,"24":24,"25":25,"26":26,"27":27,"28":28,"30":30,"34":34,"35":35,"36":36,"39":39,"4":4,"40":40,"41":41,"43":43,"48":48,"49":49,"5":5,"50":50,"57":57,"6":6,"7":7,"75":75,"80":80,"9":9}],4:[function(_dereq_,module,exports){
 'use strict';
 
-var readAsBinaryString = _dereq_(22);
+var readAsBinaryString = _dereq_(15);
 
 // In the browser, we store a binary string
 module.exports = function prepareAttachmentForStorage(attData, cb) {
   readAsBinaryString(attData, cb);
 };
-},{"22":22}],5:[function(_dereq_,module,exports){
+},{"15":15}],5:[function(_dereq_,module,exports){
 'use strict';
 
-var createBlob = _dereq_(19);
+var createBlob = _dereq_(12);
 
 module.exports = function readAsBlobOrBuffer(storedObject, type) {
   // In the browser, we've stored a binary string. This now comes back as a
   // browserified Node-style Buffer, but we want a Blob instead.
   return createBlob([storedObject.toArrayBuffer()], {type: type});
 };
-},{"19":19}],6:[function(_dereq_,module,exports){
+},{"12":12}],6:[function(_dereq_,module,exports){
 (function (process){
 'use strict';
 
@@ -1464,14 +1530,14 @@ module.exports = function readAsBlobOrBuffer(storedObject, type) {
 // things in-memory and then does a big batch() operation
 // when you're done
 
-var utils = _dereq_(53);
+var collections = _dereq_(143);
 
 function getCacheFor(transaction, store) {
   var prefix = store.prefix()[0];
   var cache = transaction._cache;
   var subCache = cache.get(prefix);
   if (!subCache) {
-    subCache = new utils.Map();
+    subCache = new collections.Map();
     cache.set(prefix, subCache);
   }
   return subCache;
@@ -1479,7 +1545,7 @@ function getCacheFor(transaction, store) {
 
 function LevelTransaction() {
   this._batch = [];
-  this._cache = new utils.Map();
+  this._cache = new collections.Map();
 }
 
 LevelTransaction.prototype.get = function (store, key, callback) {
@@ -1490,6 +1556,7 @@ LevelTransaction.prototype.get = function (store, key, callback) {
       callback(null, exists);
     });
   } else if (exists === null) { // deleted marker
+    /* istanbul ignore next */
     return process.nextTick(function () {
       callback({name: 'NotFoundError'});
     });
@@ -1524,7 +1591,7 @@ LevelTransaction.prototype.batch = function (batch) {
 
 LevelTransaction.prototype.execute = function (db, callback) {
 
-  var keys = new utils.Set();
+  var keys = new collections.Set();
   var uniqBatches = [];
 
   // remove duplicates; last one wins
@@ -1542,15 +1609,16 @@ LevelTransaction.prototype.execute = function (db, callback) {
 };
 
 module.exports = LevelTransaction;
-}).call(this,_dereq_(62))
-},{"53":53,"62":62}],7:[function(_dereq_,module,exports){
+
+}).call(this,_dereq_(57))
+},{"143":143,"57":57}],7:[function(_dereq_,module,exports){
 'use strict';
 
-var EventEmitter = _dereq_(60).EventEmitter;
-var inherits = _dereq_(84);
-var isChromeApp = _dereq_(30);
-var hasLocalStorage = _dereq_(29);
-var pick = _dereq_(45);
+var EventEmitter = _dereq_(54).EventEmitter;
+var inherits = _dereq_(76);
+var isChromeApp = _dereq_(23);
+var hasLocalStorage = _dereq_(22);
+var pick = _dereq_(38);
 
 inherits(Changes, EventEmitter);
 
@@ -1584,12 +1652,14 @@ function Changes() {
   attachBrowserEvents(this);
 }
 Changes.prototype.addListener = function (dbName, id, db, opts) {
+  /* istanbul ignore if */
   if (this._listeners[id]) {
     return;
   }
   var self = this;
   var inprogress = false;
   function eventFunction() {
+    /* istanbul ignore if */
     if (!self._listeners[id]) {
       return;
     }
@@ -1616,6 +1686,7 @@ Changes.prototype.addListener = function (dbName, id, db, opts) {
       }
       inprogress = false;
     }).on('error', function () {
+      /* istanbul ignore next */
       inprogress = false;
     });
   }
@@ -1624,6 +1695,7 @@ Changes.prototype.addListener = function (dbName, id, db, opts) {
 };
 
 Changes.prototype.removeListener = function (dbName, id) {
+  /* istanbul ignore if */
   if (!(id in this._listeners)) {
     return;
   }
@@ -1650,420 +1722,7 @@ Changes.prototype.notify = function (dbName) {
 
 module.exports = Changes;
 
-},{"29":29,"30":30,"45":45,"60":60,"84":84}],8:[function(_dereq_,module,exports){
-"use strict";
-
-var request = _dereq_(14);
-
-var errors = _dereq_(31);
-var utils = _dereq_(53);
-var applyTypeToBuffer = _dereq_(9);
-var defaultBody = _dereq_(10);
-var explainCors = _dereq_(12);
-
-function ajax(options, callback) {
-
-  options = utils.clone(options);
-
-  var defaultOptions = {
-    method : "GET",
-    headers: {},
-    json: true,
-    processData: true,
-    timeout: 10000,
-    cache: false
-  };
-
-  options = utils.extend(defaultOptions, options);
-
-
-  function onSuccess(obj, resp, cb) {
-    if (!options.binary && !options.json && options.processData &&
-      typeof obj !== 'string') {
-      obj = JSON.stringify(obj);
-    } else if (!options.binary && options.json && typeof obj === 'string') {
-      try {
-        obj = JSON.parse(obj);
-      } catch (e) {
-        // Probably a malformed JSON from server
-        return cb(e);
-      }
-    }
-    if (Array.isArray(obj)) {
-      obj = obj.map(function (v) {
-        if (v.error || v.missing) {
-          return errors.generateErrorFromResponse(v);
-        } else {
-          return v;
-        }
-      });
-    }
-    if (options.binary) {
-      applyTypeToBuffer(obj, resp);
-    }
-    cb(null, obj, resp);
-  }
-
-  function onError(err, cb) {
-    var errParsed, errObj;
-    if (err.code && err.status) {
-      var err2 = new Error(err.message || err.code);
-      err2.status = err.status;
-      return cb(err2);
-    }
-    try {
-      errParsed = JSON.parse(err.responseText);
-      //would prefer not to have a try/catch clause
-      errObj = errors.generateErrorFromResponse(errParsed);
-    } catch (e) {
-      errObj = errors.generateErrorFromResponse(err);
-    }
-    cb(errObj);
-  }
-
-
-  if (options.json) {
-    if (!options.binary) {
-      options.headers.Accept = 'application/json';
-    }
-    options.headers['Content-Type'] = options.headers['Content-Type'] ||
-      'application/json';
-  }
-
-  if (options.binary) {
-    options.encoding = null;
-    options.json = false;
-  }
-
-  if (!options.processData) {
-    options.json = false;
-  }
-
-  return request(options, function (err, response, body) {
-    if (err) {
-      if (response) {
-        var origin = (typeof document !== 'undefined') &&
-          document.location.origin;
-        var isCrossOrigin = origin && options.url.indexOf(origin) === 0;
-        if (isCrossOrigin && response.statusCode === 0) {
-          explainCors();
-        }
-        err.status = response.statusCode;
-      } else {
-        err.status = 400;
-      }
-      return onError(err, callback);
-    }
-
-    var error;
-    var content_type = response.headers && response.headers['content-type'];
-    var data = body || defaultBody();
-
-    // CouchDB doesn't always return the right content-type for JSON data, so
-    // we check for ^{ and }$ (ignoring leading/trailing whitespace)
-    if (!options.binary && (options.json || !options.processData) &&
-        typeof data !== 'object' &&
-        (/json/.test(content_type) ||
-         (/^[\s]*\{/.test(data) && /\}[\s]*$/.test(data)))) {
-      try {
-        data = JSON.parse(data.toString());
-      } catch (e) {}
-    }
-
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      onSuccess(data, response, callback);
-    } else {
-      error = errors.generateErrorFromResponse(data);
-      error.status = response.statusCode;
-      callback(error);
-    }
-  });
-}
-
-module.exports = ajax;
-
-},{"10":10,"12":12,"14":14,"31":31,"53":53,"9":9}],9:[function(_dereq_,module,exports){
-'use strict';
-
-// the blob already has a type; do nothing
-module.exports = function () {};
-},{}],10:[function(_dereq_,module,exports){
-'use strict';
-
-module.exports = function defaultBody() {
-  return '';
-};
-},{}],11:[function(_dereq_,module,exports){
-(function (global){
-'use strict';
-
-// designed to give info to browser users, who are disturbed
-// when they see 404s in the console
-module.exports = function explain404(str) {
-  if ('console' in global && 'info' in console) {
-    console.info('The above 404 is totally normal. ' + str);
-  }
-};
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],12:[function(_dereq_,module,exports){
-(function (global){
-'use strict';
-
-module.exports = function () {
-  if ('console' in global && 'warn' in console) {
-    console.warn('PouchDB: the remote database may not have CORS enabled.' +
-      'If not please enable CORS: ' +
-      'http://pouchdb.com/errors.html#no_access_control_allow_origin_header');
-  }
-};
-
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],13:[function(_dereq_,module,exports){
-'use strict';
-
-var ajax = _dereq_(8);
-
-module.exports = function(opts, callback) {
-
-  // cache-buster, specifically designed to work around IE's aggressive caching
-  // see http://www.dashbay.com/2011/05/internet-explorer-caches-ajax/
-  // Also Safari caches POSTs, so we need to cache-bust those too.
-  if ((opts.method === 'POST' || opts.method === 'GET') && !opts.cache) {
-    var hasArgs = opts.url.indexOf('?') !== -1;
-    opts.url += (hasArgs ? '&' : '?') + '_nonce=' + Date.now();
-  }
-
-  return ajax(opts, callback);
-};
-
-},{"8":8}],14:[function(_dereq_,module,exports){
-/* global fetch */
-/* global Headers */
-'use strict';
-
-var createBlob = _dereq_(19);
-var utils = _dereq_(53);
-var readAsArrayBuffer = _dereq_(21);
-
-function wrappedFetch() {
-  var wrappedPromise = {};
-
-  var promise = new utils.Promise(function(resolve, reject) {
-    wrappedPromise.resolve = resolve;
-    wrappedPromise.reject = reject;
-  });
-
-  var args = new Array(arguments.length);
-
-  for (var i = 0; i < args.length; i++) {
-    args[i] = arguments[i];
-  }
-
-  wrappedPromise.promise = promise;
-
-  utils.Promise.resolve().then(function () {
-    return fetch.apply(null, args);
-  }).then(function(response) {
-    wrappedPromise.resolve(response);
-  })["catch"](function(error) {
-    wrappedPromise.reject(error);
-  });
-
-  return wrappedPromise;
-}
-
-function fetchRequest(options, callback) {
-  var wrappedPromise, timer, response;
-
-  var headers = new Headers();
-
-  var fetchOptions = {
-    method: options.method,
-    credentials: 'include',
-    headers: headers
-  };
-
-  if (options.json) {
-    headers.set('Accept', 'application/json');
-    headers.set('Content-Type', options.headers['Content-Type'] ||
-      'application/json');
-  }
-
-  if (options.body && (options.body instanceof Blob)) {
-    readAsArrayBuffer(options.body, function (arrayBuffer) {
-      fetchOptions.body = arrayBuffer;
-    });
-  } else if (options.body &&
-             options.processData &&
-             typeof options.body !== 'string') {
-    fetchOptions.body = JSON.stringify(options.body);
-  } else if ('body' in options) {
-    fetchOptions.body = options.body;
-  } else {
-    fetchOptions.body = null;
-  }
-
-  Object.keys(options.headers).forEach(function(key) {
-    if (options.headers.hasOwnProperty(key)) {
-      headers.set(key, options.headers[key]);
-    }
-  });
-
-  wrappedPromise = wrappedFetch(options.url, fetchOptions);
-
-  if (options.timeout > 0) {
-    timer = setTimeout(function() {
-      wrappedPromise.reject(new Error('Load timeout for resource: ' +
-        options.url));
-    }, options.timeout);
-  }
-
-  wrappedPromise.promise.then(function(fetchResponse) {
-    response = {
-      statusCode: fetchResponse.status
-    };
-
-    if (options.timeout > 0) {
-      clearTimeout(timer);
-    }
-
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      return options.binary ? fetchResponse.blob() : fetchResponse.text();
-    }
-
-    return fetchResponse.json();
-  }).then(function(result) {
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      callback(null, response, result);
-    } else {
-      callback(result, response);
-    }
-  })["catch"](function(error) {
-    callback(error, response);
-  });
-
-  return {abort: wrappedPromise.reject};
-}
-
-function xhRequest(options, callback) {
-
-  var xhr, timer, hasUpload;
-
-  var abortReq = function () {
-    xhr.abort();
-  };
-
-  if (options.xhr) {
-    xhr = new options.xhr();
-  } else {
-    xhr = new XMLHttpRequest();
-  }
-
-  xhr.open(options.method, options.url);
-  xhr.withCredentials = true;
-
-  if (options.method === 'GET') {
-    delete options.headers['Content-Type'];
-  } else if (options.json) {
-    options.headers.Accept = 'application/json';
-    options.headers['Content-Type'] = options.headers['Content-Type'] ||
-      'application/json';
-    if (options.body &&
-        options.processData &&
-        typeof options.body !== "string") {
-      options.body = JSON.stringify(options.body);
-    }
-  }
-
-  if (options.binary) {
-    xhr.responseType = 'arraybuffer';
-  }
-
-  if (!('body' in options)) {
-    options.body = null;
-  }
-
-  for (var key in options.headers) {
-    if (options.headers.hasOwnProperty(key)) {
-      xhr.setRequestHeader(key, options.headers[key]);
-    }
-  }
-
-  if (options.timeout > 0) {
-    timer = setTimeout(abortReq, options.timeout);
-    xhr.onprogress = function () {
-      clearTimeout(timer);
-      timer = setTimeout(abortReq, options.timeout);
-    };
-    if (typeof hasUpload === 'undefined') {
-      // IE throws an error if you try to access it directly
-      hasUpload = Object.keys(xhr).indexOf('upload') !== -1 &&
-                  typeof xhr.upload !== 'undefined';
-    }
-    if (hasUpload) { // does not exist in ie9
-      xhr.upload.onprogress = xhr.onprogress;
-    }
-  }
-
-  xhr.onreadystatechange = function () {
-    if (xhr.readyState !== 4) {
-      return;
-    }
-
-    var response = {
-      statusCode: xhr.status
-    };
-
-    if (xhr.status >= 200 && xhr.status < 300) {
-      var data;
-      if (options.binary) {
-        data = createBlob([xhr.response || ''], {
-          type: xhr.getResponseHeader('Content-Type')
-        });
-      } else {
-        data = xhr.responseText;
-      }
-      callback(null, response, data);
-    } else {
-      var err = {};
-      try {
-        err = JSON.parse(xhr.response);
-      } catch(e) {}
-      callback(err, response);
-    }
-  };
-
-  if (options.body && (options.body instanceof Blob)) {
-    readAsArrayBuffer(options.body, function (arrayBuffer) {
-      xhr.send(arrayBuffer);
-    });
-  } else {
-    xhr.send(options.body);
-  }
-
-  return {abort: abortReq};
-}
-
-function testXhr() {
-  try {
-    new XMLHttpRequest();
-    return true;
-  } catch (err) {
-    return false;
-  }
-}
-
-var hasXhr = testXhr();
-
-module.exports = function(options, callback) {
-  if (hasXhr || options.xhr) {
-    return xhRequest(options, callback);
-  } else {
-    return fetchRequest(options, callback);
-  }
-};
-
-},{"19":19,"21":21,"53":53}],15:[function(_dereq_,module,exports){
+},{"22":22,"23":23,"38":38,"54":54,"76":76}],8:[function(_dereq_,module,exports){
 'use strict';
 
 //Can't find original post, but this is close
@@ -2078,41 +1737,16 @@ module.exports = function (buffer) {
   }
   return binary;
 };
-},{}],16:[function(_dereq_,module,exports){
+},{}],9:[function(_dereq_,module,exports){
 'use strict';
 
-var buffer = _dereq_(20);
-
-/* istanbul ignore if */
-if (typeof atob === 'function') {
-  exports.atob = function (str) {
-    /* global atob */
-    return atob(str);
-  };
-} else {
-  exports.atob = function (str) {
-    var base64 = new buffer(str, 'base64');
-    // Node.js will just skip the characters it can't encode instead of
-    // throwing and exception
-    if (base64.toString('base64') !== str) {
-      throw ("Cannot base64 encode full string");
-    }
-    return base64.toString('binary');
-  };
-}
-
-/* istanbul ignore if */
-if (typeof btoa === 'function') {
-  exports.btoa = function (str) {
-    /* global btoa */
-    return btoa(str);
-  };
-} else {
-  exports.btoa = function (str) {
-    return new buffer(str, 'binary').toString('base64');
-  };
-}
-},{"20":20}],17:[function(_dereq_,module,exports){
+exports.atob = function (str) {
+  return atob(str);
+};
+exports.btoa = function (str) {
+  return btoa(str);
+};
+},{}],10:[function(_dereq_,module,exports){
 'use strict';
 
 // From http://stackoverflow.com/questions/14967647/ (continues on next line)
@@ -2126,16 +1760,16 @@ module.exports = function (bin) {
   }
   return buf;
 };
-},{}],18:[function(_dereq_,module,exports){
+},{}],11:[function(_dereq_,module,exports){
 'use strict';
 
-var createBlob = _dereq_(19);
-var binaryStringToArrayBuffer = _dereq_(17);
+var createBlob = _dereq_(12);
+var binaryStringToArrayBuffer = _dereq_(10);
 
 module.exports = function (binString, type) {
   return createBlob([binaryStringToArrayBuffer(binString)], {type: type});
 };
-},{"17":17,"19":19}],19:[function(_dereq_,module,exports){
+},{"10":10,"12":12}],12:[function(_dereq_,module,exports){
 "use strict";
 
 // Abstracts constructing a Blob object, so it also works in older
@@ -2166,28 +1800,56 @@ function createBlob(parts, properties) {
 module.exports = createBlob;
 
 
-},{}],20:[function(_dereq_,module,exports){
-// hey guess what, we don't need this in the browser
-module.exports = {};
-},{}],21:[function(_dereq_,module,exports){
+},{}],13:[function(_dereq_,module,exports){
 'use strict';
 
-// simplified API. universal browser support is assumed
-module.exports = function (blob, callback) {
-  var reader = new FileReader();
-  reader.onloadend = function (e) {
-    var result = e.target.result || new ArrayBuffer(0);
-    callback(result);
-  };
-  reader.readAsArrayBuffer(blob);
+function cloneArrayBuffer(buff) {
+  if (typeof buff.slice === 'function') {
+    return buff.slice(0);
+  }
+  // IE10-11 slice() polyfill
+  var target = new ArrayBuffer(buff.byteLength);
+  var targetArray = new Uint8Array(target);
+  var sourceArray = new Uint8Array(buff);
+  targetArray.set(sourceArray);
+  return target;
+}
+
+module.exports = function cloneBinaryObject(object) {
+  if (object instanceof ArrayBuffer) {
+    return cloneArrayBuffer(object);
+  }
+  var size = object.size;
+  var type = object.type;
+  // Blob
+  if (typeof object.slice === 'function') {
+    return object.slice(0, size, type);
+  }
+  // PhantomJS slice() replacement
+  return object.webkitSlice(0, size, type);
 };
-},{}],22:[function(_dereq_,module,exports){
+
+},{}],14:[function(_dereq_,module,exports){
 'use strict';
 
-var arrayBufferToBinaryString = _dereq_(15);
+module.exports = function isBinaryObject(object) {
+  return object instanceof ArrayBuffer ||
+    (typeof Blob !== 'undefined' && object instanceof Blob);
+};
+},{}],15:[function(_dereq_,module,exports){
+'use strict';
+
+var arrayBufferToBinaryString = _dereq_(8);
 
 // shim for browsers that don't support it
 module.exports = function (blob, callback) {
+  if (typeof FileReader === 'undefined') {
+    // fix for Firefox in a web worker
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=901097
+    return callback(arrayBufferToBinaryString(
+      new FileReaderSync().readAsArrayBuffer(blob)));
+  }
+
   var reader = new FileReader();
   var hasBinaryString = typeof reader.readAsBinaryString === 'function';
   reader.onloadend = function (e) {
@@ -2203,23 +1865,11 @@ module.exports = function (blob, callback) {
     reader.readAsArrayBuffer(blob);
   }
 };
-},{"15":15}],23:[function(_dereq_,module,exports){
+},{"8":8}],16:[function(_dereq_,module,exports){
 'use strict';
 
-function isPlainObject(object) {
-  // dead-simple "is this a straight-up object" test, taken
-  // from pouchdb-extend ala jQuery 1.9.0
-  // Own properties are enumerated firstly, so to speed up,
-  // if last one is own, then all properties are own.
-
-  if (typeof object.hasOwnProperty !== 'function') {
-    return false;
-  }
-
-  var key;
-  for (key in object) {}
-  return key === undefined || object.hasOwnProperty(key);
-}
+var isBinaryObject = _dereq_(14);
+var cloneBinaryObject = _dereq_(13);
 
 module.exports = function clone(object) {
   var newObject;
@@ -2244,13 +1894,13 @@ module.exports = function clone(object) {
     return object.toISOString();
   }
 
-  if (!isPlainObject(object)) {
-    return object;
+  if (isBinaryObject(object)) {
+    return cloneBinaryObject(object);
   }
 
   newObject = {};
   for (i in object) {
-    if (object.hasOwnProperty(i)) {
+    if (Object.prototype.hasOwnProperty.call(object, i)) {
       var value = clone(object[i]);
       if (typeof value !== 'undefined') {
         newObject[i] = value;
@@ -2259,10 +1909,11 @@ module.exports = function clone(object) {
   }
   return newObject;
 };
-},{}],24:[function(_dereq_,module,exports){
+
+},{"13":13,"14":14}],17:[function(_dereq_,module,exports){
 'use strict';
 
-var winningRev = _dereq_(41);
+var winningRev = _dereq_(35);
 
 function getTrees(node) {
   return node.ids;
@@ -2288,7 +1939,7 @@ function isDeleted(metadata, rev) {
 }
 
 module.exports = isDeleted;
-},{"41":41}],25:[function(_dereq_,module,exports){
+},{"35":35}],18:[function(_dereq_,module,exports){
 'use strict';
 
 function isLocalId(id) {
@@ -2296,11 +1947,11 @@ function isLocalId(id) {
 }
 
 module.exports = isLocalId;
-},{}],26:[function(_dereq_,module,exports){
+},{}],19:[function(_dereq_,module,exports){
 'use strict';
 
-var errors = _dereq_(31);
-var uuid = _dereq_(48);
+var errors = _dereq_(24);
+var uuid = _dereq_(43);
 
 function toObject(array) {
   return array.reduce(function (obj, item) {
@@ -2466,16 +2117,16 @@ exports.parseDoc = function (doc, newEdits) {
   return result;
 };
 
-},{"31":31,"48":48}],27:[function(_dereq_,module,exports){
+},{"24":24,"43":43}],20:[function(_dereq_,module,exports){
 'use strict';
 
-var errors = _dereq_(31);
-var updateDoc = _dereq_(28);
-var isDeleted = _dereq_(24);
-var isLocalId = _dereq_(25);
-var calculateWinningRev = _dereq_(41);
-var merge = _dereq_(37);
-var collections = _dereq_(150);
+var errors = _dereq_(24);
+var updateDoc = _dereq_(21);
+var isDeleted = _dereq_(17);
+var isLocalId = _dereq_(18);
+var calculateWinningRev = _dereq_(35);
+var merge = _dereq_(31);
+var collections = _dereq_(143);
 var Map = collections.Map;
 
 function processDocs(docInfos, api, fetchedDocs, tx, results, writeDoc, opts,
@@ -2511,15 +2162,11 @@ function processDocs(docInfos, api, fetchedDocs, tx, results, writeDoc, opts,
   docInfos.forEach(function (currentDoc, resultsIdx) {
 
     if (currentDoc._id && isLocalId(currentDoc._id)) {
-      api[currentDoc._deleted ? '_removeLocal' : '_putLocal'](
-        currentDoc, {ctx: tx}, function (err) {
-          if (err) {
-            results[resultsIdx] = err;
-          } else {
-            results[resultsIdx] = {ok: true};
-          }
-          checkAllDocsDone();
-        });
+      var fun = currentDoc._deleted ? '_removeLocal' : '_putLocal';
+      api[fun](currentDoc, {ctx: tx}, function (err, res) {
+        results[resultsIdx] = err || res;
+        checkAllDocsDone();
+      });
       return;
     }
 
@@ -2565,15 +2212,15 @@ function processDocs(docInfos, api, fetchedDocs, tx, results, writeDoc, opts,
 
 module.exports = processDocs;
 
-},{"150":150,"24":24,"25":25,"28":28,"31":31,"37":37,"41":41}],28:[function(_dereq_,module,exports){
+},{"143":143,"17":17,"18":18,"21":21,"24":24,"31":31,"35":35}],21:[function(_dereq_,module,exports){
 'use strict';
 
-var errors = _dereq_(31);
-var isDeleted = _dereq_(24);
-var parseDoc = _dereq_(26).parseDoc;
-var calculateWinningRev = _dereq_(41);
-var merge = _dereq_(37);
-var revExists = _dereq_(38);
+var errors = _dereq_(24);
+var isDeleted = _dereq_(17);
+var parseDoc = _dereq_(19).parseDoc;
+var calculateWinningRev = _dereq_(35);
+var merge = _dereq_(31);
+var revExists = _dereq_(32);
 
 function updateDoc(prev, docInfo, results, i, cb, writeDoc, newEdits) {
 
@@ -2639,10 +2286,10 @@ function updateDoc(prev, docInfo, results, i, cb, writeDoc, newEdits) {
 }
 
 module.exports = updateDoc;
-},{"24":24,"26":26,"31":31,"37":37,"38":38,"41":41}],29:[function(_dereq_,module,exports){
+},{"17":17,"19":19,"24":24,"31":31,"32":32,"35":35}],22:[function(_dereq_,module,exports){
 'use strict';
 
-var isChromeApp = _dereq_(30);
+var isChromeApp = _dereq_(23);
 
 var hasLocal;
 
@@ -2660,7 +2307,7 @@ if (isChromeApp()) {
 module.exports = function hasLocalStorage() {
   return hasLocal;
 };
-},{"30":30}],30:[function(_dereq_,module,exports){
+},{"23":23}],23:[function(_dereq_,module,exports){
 'use strict';
 
 module.exports = function isChromeApp() {
@@ -2668,10 +2315,10 @@ module.exports = function isChromeApp() {
     typeof chrome.storage !== "undefined" &&
     typeof chrome.storage.local !== "undefined");
 };
-},{}],31:[function(_dereq_,module,exports){
+},{}],24:[function(_dereq_,module,exports){
 "use strict";
 
-var inherits = _dereq_(84);
+var inherits = _dereq_(76);
 inherits(PouchError, Error);
 
 function PouchError(opts) {
@@ -2686,7 +2333,8 @@ PouchError.prototype.toString = function () {
   return JSON.stringify({
     status: this.status,
     name: this.name,
-    message: this.message
+    message: this.message,
+    reason: this.reason
   });
 };
 
@@ -2920,34 +2568,63 @@ exports.generateErrorFromResponse = function (res) {
   return error;
 };
 
-},{"84":84}],32:[function(_dereq_,module,exports){
+},{"76":76}],25:[function(_dereq_,module,exports){
 'use strict';
 
-var clone = _dereq_(23);
+var errors = _dereq_(24);
 
-function extendInner(obj, otherObj) {
-  for (var key in otherObj) {
-    if (otherObj.hasOwnProperty(key)) {
-      var value = clone(otherObj[key]);
-      if (typeof value !== 'undefined') {
-        obj[key] = value;
-      }
-    }
+function tryFilter(filter, doc, req) {
+  try {
+    return !filter(doc, req);
+  } catch (err) {
+    var msg = 'Filter function threw: ' + err.toString();
+    return errors.error(errors.BAD_REQUEST, msg);
   }
 }
 
-module.exports = function extend(obj, obj2, obj3) {
-  extendInner(obj, obj2);
-  if (obj3) {
-    extendInner(obj, obj3);
-  }
-  return obj;
+module.exports = function filterChange(opts) {
+  var req = {};
+  var hasFilter = opts.filter && typeof opts.filter === 'function';
+  req.query = opts.query_params;
+
+  return function filter(change) {
+    if (!change.doc) {
+      // CSG sends events on the changes feed that don't have documents,
+      // this hack makes a whole lot of existing code robust.
+      change.doc = {};
+    }
+
+    var filterReturn = hasFilter && tryFilter(opts.filter, change.doc, req);
+
+    if (typeof filterReturn === 'object') {
+      return filterReturn;
+    }
+
+    if (filterReturn) {
+      return false;
+    }
+
+    if (!opts.include_docs) {
+      delete change.doc;
+    } else if (!opts.attachments) {
+      for (var att in change.doc._attachments) {
+        /* istanbul ignore else */
+        if (change.doc._attachments.hasOwnProperty(att)) {
+          change.doc._attachments[att].stub = true;
+        }
+      }
+    }
+    return true;
+  };
 };
-},{"23":23}],33:[function(_dereq_,module,exports){
+},{"24":24}],26:[function(_dereq_,module,exports){
 'use strict';
 
 // shim for Function.prototype.name,
 // for browsers that don't support it like IE
+
+// We dont run coverage in IE
+/* istanbul ignore else */
 if ((function f() {}).name) {
   module.exports = function (fun) {
     return fun.name;
@@ -2958,13 +2635,13 @@ if ((function f() {}).name) {
   };
 }
 
-},{}],34:[function(_dereq_,module,exports){
+},{}],27:[function(_dereq_,module,exports){
 (function (global){
 'use strict';
 
-var toPromise = _dereq_(47);
-var base64 = _dereq_(16);
-var Md5 = _dereq_(151);
+var toPromise = _dereq_(42);
+var base64 = _dereq_(9);
+var Md5 = _dereq_(144);
 var setImmediateShim = global.setImmediate || global.setTimeout;
 var MD5_CHUNK_SIZE = 32768;
 
@@ -3032,11 +2709,11 @@ module.exports = toPromise(function (data, callback) {
 });
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"151":151,"16":16,"47":47}],35:[function(_dereq_,module,exports){
+},{"144":144,"42":42,"9":9}],28:[function(_dereq_,module,exports){
 'use strict';
 
-var winningRev = _dereq_(41);
-var collectLeaves = _dereq_(36);
+var winningRev = _dereq_(35);
+var collectLeaves = _dereq_(29);
 
 // returns revs of all conflicts that is leaves such that
 // 1. are not deleted and
@@ -3053,10 +2730,10 @@ module.exports = function collectConflicts(metadata) {
   }
   return conflicts;
 };
-},{"36":36,"41":41}],36:[function(_dereq_,module,exports){
+},{"29":29,"35":35}],29:[function(_dereq_,module,exports){
 'use strict';
 
-var traverseRevTree = _dereq_(40);
+var traverseRevTree = _dereq_(34);
 
 function sortByPos(a, b) {
   return a.pos - b.pos;
@@ -3075,7 +2752,24 @@ module.exports = function collectLeaves(revs) {
   }
   return leaves;
 };
-},{"40":40}],37:[function(_dereq_,module,exports){
+},{"34":34}],30:[function(_dereq_,module,exports){
+'use strict';
+
+var traverseRevTree = _dereq_(34);
+// compact a tree by marking its non-leafs as missing,
+// and return a list of revs to delete
+module.exports = function compactTree(metadata) {
+  var revs = [];
+  traverseRevTree(metadata.rev_tree, function (isLeaf, pos,
+                                               revHash, ctx, opts) {
+    if (opts.status === 'available' && !isLeaf) {
+      revs.push(pos + '-' + revHash);
+      opts.status = 'missing';
+    }
+  });
+  return revs;
+};
+},{"34":34}],31:[function(_dereq_,module,exports){
 'use strict';
 
 // for a better overview of what this is doing, read:
@@ -3089,7 +2783,7 @@ module.exports = function collectLeaves(revs) {
 // Path = {pos: position_from_root, ids: Tree}
 // Tree = [Key, Opts, [Tree, ...]], in particular single node: [Key, []]
 
-var rootToLeaf = _dereq_(39);
+var rootToLeaf = _dereq_(33);
 
 function sortByPos(a, b) {
   return a.pos - b.pos;
@@ -3294,7 +2988,7 @@ module.exports = function merge(tree, path, depth) {
     conflicts: newTree.conflicts
   };
 };
-},{"39":39}],38:[function(_dereq_,module,exports){
+},{"33":33}],32:[function(_dereq_,module,exports){
 'use strict';
 
 // return true if a rev exists in the rev tree, false otherwise
@@ -3316,7 +3010,7 @@ module.exports = function revExists(revs, rev) {
   }
   return false;
 };
-},{}],39:[function(_dereq_,module,exports){
+},{}],33:[function(_dereq_,module,exports){
 'use strict';
 // build up a list of all the paths to the leafs in this revision tree
 module.exports = function rootToLeaf(revs) {
@@ -3342,7 +3036,7 @@ module.exports = function rootToLeaf(revs) {
   }
   return paths.reverse();
 };
-},{}],40:[function(_dereq_,module,exports){
+},{}],34:[function(_dereq_,module,exports){
 'use strict';
 
 // Pretty much all below can be combined into a higher order function to
@@ -3364,7 +3058,7 @@ module.exports = function traverseRevTree(revs, callback) {
     }
   }
 };
-},{}],41:[function(_dereq_,module,exports){
+},{}],35:[function(_dereq_,module,exports){
 'use strict';
 
 // We fetch all leafs of the revision tree, and sort them based on tree length
@@ -3401,7 +3095,7 @@ module.exports = function winningRev(metadata) {
 
   return winningPos + '-' + winningId;
 };
-},{}],42:[function(_dereq_,module,exports){
+},{}],36:[function(_dereq_,module,exports){
 (function (process){
 'use strict';
 // in the browser, LevelAlt doesn't need the
@@ -3417,11 +3111,11 @@ exports.localAndMetaStores = function (db, stores, callback) {
     callback();
   });
 };
-}).call(this,_dereq_(62))
-},{"62":62}],43:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57))
+},{"57":57}],37:[function(_dereq_,module,exports){
 'use strict';
 
-var getArguments = _dereq_(54);
+var getArguments = _dereq_(48);
 
 function once(fun) {
   var called = false;
@@ -3438,45 +3132,7 @@ function once(fun) {
 }
 
 module.exports = once;
-},{"54":54}],44:[function(_dereq_,module,exports){
-'use strict';
-
-// originally parseUri 1.2.2, now patched by us
-// (c) Steven Levithan <stevenlevithan.com>
-// MIT License
-var keys = ["source", "protocol", "authority", "userInfo", "user", "password",
-    "host", "port", "relative", "path", "directory", "file", "query", "anchor"];
-var qName ="queryKey";
-var qParser = /(?:^|&)([^&=]*)=?([^&]*)/g;
-
-// use the "loose" parser
-/* jshint maxlen: false */
-var parser = /^(?:(?![^:@]+:[^:@\/]*@)([^:\/?#.]+):)?(?:\/\/)?((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?)(((\/(?:[^?#](?![^?#\/]*\.[^?#\/.]+(?:[?#]|$)))*\/?)?([^?#\/]*))(?:\?([^#]*))?(?:#(.*))?)/;
-
-function parseUri(str) {
-  var m = parser.exec(str);
-  var uri = {};
-  var i = 14;
-
-  while (i--) {
-    var key = keys[i];
-    var value = m[i] || "";
-    var encoded = ['user', 'password'].indexOf(key) !== -1;
-    uri[key] = encoded ? decodeURIComponent(value) : value;
-  }
-
-  uri[qName] = {};
-  uri[keys[12]].replace(qParser, function ($0, $1, $2) {
-    if ($1) {
-      uri[qName][$1] = $2;
-    }
-  });
-
-  return uri;
-}
-
-module.exports = parseUri;
-},{}],45:[function(_dereq_,module,exports){
+},{"48":48}],38:[function(_dereq_,module,exports){
 'use strict';
 
 // like underscore/lodash _.pick()
@@ -3490,22 +3146,51 @@ module.exports = function pick(obj, arr) {
   }
   return res;
 };
-},{}],46:[function(_dereq_,module,exports){
+},{}],39:[function(_dereq_,module,exports){
 'use strict';
 /* istanbul ignore next */
-module.exports = typeof Promise === 'function' ? Promise : _dereq_(139);
+module.exports = typeof Promise === 'function' ? Promise : _dereq_(132);
 
-},{"139":139}],47:[function(_dereq_,module,exports){
+},{"132":132}],40:[function(_dereq_,module,exports){
+'use strict';
+
+var vuvuzela = _dereq_(157);
+
+module.exports = function safeJsonParse(str) {
+  try {
+    return JSON.parse(str);
+  } catch (e) {
+    /* istanbul ignore next */
+    return vuvuzela.parse(str);
+  }
+};
+},{"157":157}],41:[function(_dereq_,module,exports){
+'use strict';
+
+var vuvuzela = _dereq_(157);
+
+module.exports = function safeJsonStringify(json) {
+  try {
+    return JSON.stringify(json);
+  } catch (e) {
+    /* istanbul ignore next */
+    return vuvuzela.stringify(json);
+  }
+};
+},{"157":157}],42:[function(_dereq_,module,exports){
 (function (process){
 'use strict';
 
-var Promise = _dereq_(46);
-var getArguments = _dereq_(54);
-var once = _dereq_(43);
+var Promise = _dereq_(39);
+var getArguments = _dereq_(48);
+var clone = _dereq_(16);
+var once = _dereq_(37);
 
 function toPromise(func) {
   //create the function we will be returning
   return getArguments(function (args) {
+    // Clone arguments
+    args = clone(args);
     var self = this;
     var tempCB =
       (typeof args[args.length - 1] === 'function') ? args.pop() : false;
@@ -3552,8 +3237,9 @@ function toPromise(func) {
 }
 
 module.exports = toPromise;
-}).call(this,_dereq_(62))
-},{"43":43,"46":46,"54":54,"62":62}],48:[function(_dereq_,module,exports){
+
+}).call(this,_dereq_(57))
+},{"16":16,"37":37,"39":39,"48":48,"57":57}],43:[function(_dereq_,module,exports){
 "use strict";
 
 // BEGIN Math.uuid.js
@@ -3638,13 +3324,13 @@ function uuid(len, radix) {
 module.exports = uuid;
 
 
-},{}],49:[function(_dereq_,module,exports){
+},{}],44:[function(_dereq_,module,exports){
 'use strict';
 /* global PouchDB */
 
 function pluginBase(adapterConfig, downAdapter) {
   var adapterName = adapterConfig.name;
-  var adapter = _dereq_(50)(adapterConfig, downAdapter);
+  var adapter = _dereq_(45)(adapterConfig, downAdapter);
   // use global PouchDB if it's there (e.g. window.PouchDB)
   var PDB = (typeof PouchDB !== 'undefined') ? PouchDB : _dereq_("pouchdb");
   if (!PDB) {
@@ -3657,16 +3343,18 @@ function pluginBase(adapterConfig, downAdapter) {
 }
 
 module.exports = pluginBase;
-},{"50":50,"pouchdb":"pouchdb"}],50:[function(_dereq_,module,exports){
+},{"45":45,"pouchdb":"pouchdb"}],45:[function(_dereq_,module,exports){
 'use strict';
 
 var LevelPouch = _dereq_(3);
-var utils = _dereq_(53);
+var toPromise = _dereq_(42);
+var extend = _dereq_(77).extend;
+
 module.exports = altFactory;
 function altFactory(adapterConfig, downAdapter) {
 
   function LevelPouchAlt(opts, callback) {
-    var _opts = utils.extend({
+    var _opts = extend({
       db: downAdapter
     }, opts);
 
@@ -3679,12 +3367,12 @@ function altFactory(adapterConfig, downAdapter) {
   };
   LevelPouchAlt.use_prefix = adapterConfig.use_prefix;
 
-  LevelPouchAlt.destroy = utils.toPromise(function (name, opts, callback) {
+  LevelPouchAlt.destroy = toPromise(function (name, opts, callback) {
     if (typeof opts === 'function') {
       callback = opts;
       opts = {};
     }
-    var _opts = utils.extend({
+    var _opts = extend({
       db: downAdapter
     }, opts);
 
@@ -3694,7 +3382,7 @@ function altFactory(adapterConfig, downAdapter) {
 
 }
 
-},{"3":3,"53":53}],51:[function(_dereq_,module,exports){
+},{"3":3,"42":42,"77":77}],46:[function(_dereq_,module,exports){
 'use strict';
 
 module.exports = {
@@ -3705,195 +3393,14 @@ module.exports = {
   use_prefix: false
 };
 
-},{}],52:[function(_dereq_,module,exports){
+},{}],47:[function(_dereq_,module,exports){
 'use strict';
 
-var pluginBase = _dereq_(49);
-var adapterConfig = _dereq_(51);
-var downAdapter = _dereq_(141);
+var pluginBase = _dereq_(44);
+var adapterConfig = _dereq_(46);
+var downAdapter = _dereq_(134);
 pluginBase(adapterConfig, downAdapter);
-},{"141":141,"49":49,"51":51}],53:[function(_dereq_,module,exports){
-/*jshint strict: false */
-var traverseRevTree = _dereq_(40);
-exports.ajax = _dereq_(13);
-exports.uuid = _dereq_(48);
-exports.getArguments = _dereq_(54);
-var collections = _dereq_(150);
-exports.Map = collections.Map;
-exports.Set = collections.Set;
-var parseDoc = _dereq_(26);
-
-var Promise = _dereq_(46);
-exports.Promise = Promise;
-
-var base64 = _dereq_(16);
-var errors = _dereq_(31);
-
-// TODO: don't export these
-exports.atob = base64.atob;
-exports.btoa = base64.btoa;
-
-var binStringToBlobOrBuffer =
-  _dereq_(18);
-
-// TODO: only used by the integration tests
-exports.binaryStringToBlobOrBuffer = binStringToBlobOrBuffer;
-
-exports.clone = _dereq_(23);
-exports.extend = _dereq_(32);
-
-exports.pick = _dereq_(45);
-exports.inherits = _dereq_(84);
-
-function tryFilter(filter, doc, req) {
-  try {
-    return !filter(doc, req);
-  } catch (err) {
-    var msg = 'Filter function threw: ' + err.toString();
-    return errors.error(errors.BAD_REQUEST, msg);
-  }
-}
-
-exports.filterChange = function filterChange(opts) {
-  var req = {};
-  var hasFilter = opts.filter && typeof opts.filter === 'function';
-  req.query = opts.query_params;
-
-  return function filter(change) {
-    if (!change.doc) {
-      // CSG sends events on the changes feed that don't have documents,
-      // this hack makes a whole lot of existing code robust.
-      change.doc = {};
-    }
-
-    var filterReturn = hasFilter && tryFilter(opts.filter, change.doc, req);
-
-    if (typeof filterReturn === 'object') {
-      return filterReturn;
-    }
-
-    if (filterReturn) {
-      return false;
-    }
-
-    if (!opts.include_docs) {
-      delete change.doc;
-    } else if (!opts.attachments) {
-      for (var att in change.doc._attachments) {
-        /* istanbul ignore else */
-        if (change.doc._attachments.hasOwnProperty(att)) {
-          change.doc._attachments[att].stub = true;
-        }
-      }
-    }
-    return true;
-  };
-};
-
-exports.parseDoc = parseDoc.parseDoc;
-exports.invalidIdError = parseDoc.invalidIdError;
-
-exports.isCordova = function () {
-  return (typeof cordova !== "undefined" ||
-          typeof PhoneGap !== "undefined" ||
-          typeof phonegap !== "undefined");
-};
-
-exports.Changes = _dereq_(7);
-
-exports.once = _dereq_(43);
-
-exports.toPromise = _dereq_(47);
-
-exports.adapterFun = function (name, callback) {
-  var log = _dereq_(80)('pouchdb:api');
-
-  function logApiCall(self, name, args) {
-    /* istanbul ignore if */
-    if (log.enabled) {
-      var logArgs = [self._db_name, name];
-      for (var i = 0; i < args.length - 1; i++) {
-        logArgs.push(args[i]);
-      }
-      log.apply(null, logArgs);
-
-      // override the callback itself to log the response
-      var origCallback = args[args.length - 1];
-      args[args.length - 1] = function (err, res) {
-        var responseArgs = [self._db_name, name];
-        responseArgs = responseArgs.concat(
-          err ? ['error', err] : ['success', res]
-        );
-        log.apply(null, responseArgs);
-        origCallback(err, res);
-      };
-    }
-  }
-
-
-  return exports.toPromise(exports.getArguments(function (args) {
-    if (this._closed) {
-      return Promise.reject(new Error('database is closed'));
-    }
-    var self = this;
-    logApiCall(self, name, args);
-    if (!this.taskqueue.isReady) {
-      return new Promise(function (fulfill, reject) {
-        self.taskqueue.addTask(function (failed) {
-          if (failed) {
-            reject(failed);
-          } else {
-            fulfill(self[name].apply(self, args));
-          }
-        });
-      });
-    }
-    return callback.apply(this, args);
-  }));
-};
-
-exports.explain404 = _dereq_(11);
-
-exports.parseUri = _dereq_(44);
-
-exports.compare = function (left, right) {
-  return left < right ? -1 : left > right ? 1 : 0;
-};
-
-
-// compact a tree by marking its non-leafs as missing,
-// and return a list of revs to delete
-exports.compactTree = function compactTree(metadata) {
-  var revs = [];
-  traverseRevTree(metadata.rev_tree, function (isLeaf, pos,
-                                                     revHash, ctx, opts) {
-    if (opts.status === 'available' && !isLeaf) {
-      revs.push(pos + '-' + revHash);
-      opts.status = 'missing';
-    }
-  });
-  return revs;
-};
-
-var vuvuzela = _dereq_(164);
-
-exports.safeJsonParse = function safeJsonParse(str) {
-  try {
-    return JSON.parse(str);
-  } catch (e) {
-    return vuvuzela.parse(str);
-  }
-};
-
-exports.safeJsonStringify = function safeJsonStringify(json) {
-  try {
-    return JSON.stringify(json);
-  } catch (e) {
-    return vuvuzela.stringify(json);
-  }
-};
-
-},{"11":11,"13":13,"150":150,"16":16,"164":164,"18":18,"23":23,"26":26,"31":31,"32":32,"40":40,"43":43,"44":44,"45":45,"46":46,"47":47,"48":48,"54":54,"7":7,"80":80,"84":84}],54:[function(_dereq_,module,exports){
+},{"134":134,"44":44,"46":46}],48:[function(_dereq_,module,exports){
 'use strict';
 
 module.exports = argsArray;
@@ -3913,19 +3420,21 @@ function argsArray(fun) {
     }
   };
 }
-},{}],55:[function(_dereq_,module,exports){
+},{}],49:[function(_dereq_,module,exports){
 
-},{}],56:[function(_dereq_,module,exports){
+},{}],50:[function(_dereq_,module,exports){
+(function (global){
 /*!
  * The buffer module from node.js, for the browser.
  *
  * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
  * @license  MIT
  */
+/* eslint-disable no-proto */
 
-var base64 = _dereq_(57)
-var ieee754 = _dereq_(58)
-var isArray = _dereq_(59)
+var base64 = _dereq_(51)
+var ieee754 = _dereq_(52)
+var isArray = _dereq_(53)
 
 exports.Buffer = Buffer
 exports.SlowBuffer = SlowBuffer
@@ -3961,7 +3470,11 @@ var rootParent = {}
  * We detect these buggy browsers and set `Buffer.TYPED_ARRAY_SUPPORT` to `false` so they
  * get the Object implementation, which is slower but behaves correctly.
  */
-Buffer.TYPED_ARRAY_SUPPORT = (function () {
+Buffer.TYPED_ARRAY_SUPPORT = global.TYPED_ARRAY_SUPPORT !== undefined
+  ? global.TYPED_ARRAY_SUPPORT
+  : typedArraySupport()
+
+function typedArraySupport () {
   function Bar () {}
   try {
     var arr = new Uint8Array(1)
@@ -3974,7 +3487,7 @@ Buffer.TYPED_ARRAY_SUPPORT = (function () {
   } catch (e) {
     return false
   }
-})()
+}
 
 function kMaxLength () {
   return Buffer.TYPED_ARRAY_SUPPORT
@@ -4130,10 +3643,16 @@ function fromJsonObject (that, object) {
   return that
 }
 
+if (Buffer.TYPED_ARRAY_SUPPORT) {
+  Buffer.prototype.__proto__ = Uint8Array.prototype
+  Buffer.__proto__ = Uint8Array
+}
+
 function allocate (that, length) {
   if (Buffer.TYPED_ARRAY_SUPPORT) {
     // Return an augmented `Uint8Array` instance, for best performance
     that = Buffer._augment(new Uint8Array(length))
+    that.__proto__ = Buffer.prototype
   } else {
     // Fallback: Return an object instance of the Buffer class
     that.length = length
@@ -4922,7 +4441,7 @@ Buffer.prototype.writeUInt8 = function writeUInt8 (value, offset, noAssert) {
   offset = offset | 0
   if (!noAssert) checkInt(this, value, offset, 1, 0xff, 0)
   if (!Buffer.TYPED_ARRAY_SUPPORT) value = Math.floor(value)
-  this[offset] = value
+  this[offset] = (value & 0xff)
   return offset + 1
 }
 
@@ -4939,7 +4458,7 @@ Buffer.prototype.writeUInt16LE = function writeUInt16LE (value, offset, noAssert
   offset = offset | 0
   if (!noAssert) checkInt(this, value, offset, 2, 0xffff, 0)
   if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = value
+    this[offset] = (value & 0xff)
     this[offset + 1] = (value >>> 8)
   } else {
     objectWriteUInt16(this, value, offset, true)
@@ -4953,7 +4472,7 @@ Buffer.prototype.writeUInt16BE = function writeUInt16BE (value, offset, noAssert
   if (!noAssert) checkInt(this, value, offset, 2, 0xffff, 0)
   if (Buffer.TYPED_ARRAY_SUPPORT) {
     this[offset] = (value >>> 8)
-    this[offset + 1] = value
+    this[offset + 1] = (value & 0xff)
   } else {
     objectWriteUInt16(this, value, offset, false)
   }
@@ -4975,7 +4494,7 @@ Buffer.prototype.writeUInt32LE = function writeUInt32LE (value, offset, noAssert
     this[offset + 3] = (value >>> 24)
     this[offset + 2] = (value >>> 16)
     this[offset + 1] = (value >>> 8)
-    this[offset] = value
+    this[offset] = (value & 0xff)
   } else {
     objectWriteUInt32(this, value, offset, true)
   }
@@ -4990,7 +4509,7 @@ Buffer.prototype.writeUInt32BE = function writeUInt32BE (value, offset, noAssert
     this[offset] = (value >>> 24)
     this[offset + 1] = (value >>> 16)
     this[offset + 2] = (value >>> 8)
-    this[offset + 3] = value
+    this[offset + 3] = (value & 0xff)
   } else {
     objectWriteUInt32(this, value, offset, false)
   }
@@ -5043,7 +4562,7 @@ Buffer.prototype.writeInt8 = function writeInt8 (value, offset, noAssert) {
   if (!noAssert) checkInt(this, value, offset, 1, 0x7f, -0x80)
   if (!Buffer.TYPED_ARRAY_SUPPORT) value = Math.floor(value)
   if (value < 0) value = 0xff + value + 1
-  this[offset] = value
+  this[offset] = (value & 0xff)
   return offset + 1
 }
 
@@ -5052,7 +4571,7 @@ Buffer.prototype.writeInt16LE = function writeInt16LE (value, offset, noAssert) 
   offset = offset | 0
   if (!noAssert) checkInt(this, value, offset, 2, 0x7fff, -0x8000)
   if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = value
+    this[offset] = (value & 0xff)
     this[offset + 1] = (value >>> 8)
   } else {
     objectWriteUInt16(this, value, offset, true)
@@ -5066,7 +4585,7 @@ Buffer.prototype.writeInt16BE = function writeInt16BE (value, offset, noAssert) 
   if (!noAssert) checkInt(this, value, offset, 2, 0x7fff, -0x8000)
   if (Buffer.TYPED_ARRAY_SUPPORT) {
     this[offset] = (value >>> 8)
-    this[offset + 1] = value
+    this[offset + 1] = (value & 0xff)
   } else {
     objectWriteUInt16(this, value, offset, false)
   }
@@ -5078,7 +4597,7 @@ Buffer.prototype.writeInt32LE = function writeInt32LE (value, offset, noAssert) 
   offset = offset | 0
   if (!noAssert) checkInt(this, value, offset, 4, 0x7fffffff, -0x80000000)
   if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = value
+    this[offset] = (value & 0xff)
     this[offset + 1] = (value >>> 8)
     this[offset + 2] = (value >>> 16)
     this[offset + 3] = (value >>> 24)
@@ -5097,7 +4616,7 @@ Buffer.prototype.writeInt32BE = function writeInt32BE (value, offset, noAssert) 
     this[offset] = (value >>> 24)
     this[offset + 1] = (value >>> 16)
     this[offset + 2] = (value >>> 8)
-    this[offset + 3] = value
+    this[offset + 3] = (value & 0xff)
   } else {
     objectWriteUInt32(this, value, offset, false)
   }
@@ -5450,7 +4969,8 @@ function blitBuffer (src, dst, offset, length) {
   return i
 }
 
-},{"57":57,"58":58,"59":59}],57:[function(_dereq_,module,exports){
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"51":51,"52":52,"53":53}],51:[function(_dereq_,module,exports){
 var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 ;(function (exports) {
@@ -5576,7 +5096,7 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],58:[function(_dereq_,module,exports){
+},{}],52:[function(_dereq_,module,exports){
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
   var eLen = nBytes * 8 - mLen - 1
@@ -5662,7 +5182,7 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128
 }
 
-},{}],59:[function(_dereq_,module,exports){
+},{}],53:[function(_dereq_,module,exports){
 
 /**
  * isArray
@@ -5697,7 +5217,7 @@ module.exports = isArray || function (val) {
   return !! val && '[object Array]' == str.call(val);
 };
 
-},{}],60:[function(_dereq_,module,exports){
+},{}],54:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -5781,18 +5301,11 @@ EventEmitter.prototype.emit = function(type) {
         break;
       // slower
       default:
-        len = arguments.length;
-        args = new Array(len - 1);
-        for (i = 1; i < len; i++)
-          args[i - 1] = arguments[i];
+        args = Array.prototype.slice.call(arguments, 1);
         handler.apply(this, args);
     }
   } else if (isObject(handler)) {
-    len = arguments.length;
-    args = new Array(len - 1);
-    for (i = 1; i < len; i++)
-      args[i - 1] = arguments[i];
-
+    args = Array.prototype.slice.call(arguments, 1);
     listeners = handler.slice();
     len = listeners.length;
     for (i = 0; i < len; i++)
@@ -5830,7 +5343,6 @@ EventEmitter.prototype.addListener = function(type, listener) {
 
   // Check for listener leak
   if (isObject(this._events[type]) && !this._events[type].warned) {
-    var m;
     if (!isUndefined(this._maxListeners)) {
       m = this._maxListeners;
     } else {
@@ -5952,7 +5464,7 @@ EventEmitter.prototype.removeAllListeners = function(type) {
 
   if (isFunction(listeners)) {
     this.removeListener(type, listeners);
-  } else {
+  } else if (listeners) {
     // LIFO order
     while (listeners.length)
       this.removeListener(type, listeners[listeners.length - 1]);
@@ -5973,15 +5485,20 @@ EventEmitter.prototype.listeners = function(type) {
   return ret;
 };
 
+EventEmitter.prototype.listenerCount = function(type) {
+  if (this._events) {
+    var evlistener = this._events[type];
+
+    if (isFunction(evlistener))
+      return 1;
+    else if (evlistener)
+      return evlistener.length;
+  }
+  return 0;
+};
+
 EventEmitter.listenerCount = function(emitter, type) {
-  var ret;
-  if (!emitter._events || !emitter._events[type])
-    ret = 0;
-  else if (isFunction(emitter._events[type]))
-    ret = 1;
-  else
-    ret = emitter._events[type].length;
-  return ret;
+  return emitter.listenerCount(type);
 };
 
 function isFunction(arg) {
@@ -6000,12 +5517,31 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],61:[function(_dereq_,module,exports){
+},{}],55:[function(_dereq_,module,exports){
+/**
+ * Determine if an object is Buffer
+ *
+ * Author:   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
+ * License:  MIT
+ *
+ * `npm install is-buffer`
+ */
+
+module.exports = function (obj) {
+  return !!(obj != null &&
+    (obj._isBuffer || // For Safari 5-7 (missing Object.prototype.constructor)
+      (obj.constructor &&
+      typeof obj.constructor.isBuffer === 'function' &&
+      obj.constructor.isBuffer(obj))
+    ))
+}
+
+},{}],56:[function(_dereq_,module,exports){
 module.exports = Array.isArray || function (arr) {
   return Object.prototype.toString.call(arr) == '[object Array]';
 };
 
-},{}],62:[function(_dereq_,module,exports){
+},{}],57:[function(_dereq_,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -6098,10 +5634,10 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],63:[function(_dereq_,module,exports){
-module.exports = _dereq_(64)
+},{}],58:[function(_dereq_,module,exports){
+module.exports = _dereq_(59)
 
-},{"64":64}],64:[function(_dereq_,module,exports){
+},{"59":59}],59:[function(_dereq_,module,exports){
 // a duplex stream is just a stream that is both readable and writable.
 // Since JS doesn't have multiple prototypal inheritance, this class
 // prototypally inherits from Readable, and then parasitically from
@@ -6121,18 +5657,18 @@ var objectKeys = Object.keys || function (obj) {
 module.exports = Duplex;
 
 /*<replacement>*/
-var processNextTick = _dereq_(70);
+var processNextTick = _dereq_(65);
 /*</replacement>*/
 
 
 
 /*<replacement>*/
-var util = _dereq_(69);
-util.inherits = _dereq_(84);
+var util = _dereq_(64);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
-var Readable = _dereq_(66);
-var Writable = _dereq_(68);
+var Readable = _dereq_(61);
+var Writable = _dereq_(63);
 
 util.inherits(Duplex, Readable);
 
@@ -6185,7 +5721,7 @@ function forEach (xs, f) {
   }
 }
 
-},{"66":66,"68":68,"69":69,"70":70,"84":84}],65:[function(_dereq_,module,exports){
+},{"61":61,"63":63,"64":64,"65":65,"76":76}],60:[function(_dereq_,module,exports){
 // a passthrough stream.
 // basically just the most minimal sort of Transform stream.
 // Every written chunk gets output as-is.
@@ -6194,11 +5730,11 @@ function forEach (xs, f) {
 
 module.exports = PassThrough;
 
-var Transform = _dereq_(67);
+var Transform = _dereq_(62);
 
 /*<replacement>*/
-var util = _dereq_(69);
-util.inherits = _dereq_(84);
+var util = _dereq_(64);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
 util.inherits(PassThrough, Transform);
@@ -6214,32 +5750,32 @@ PassThrough.prototype._transform = function(chunk, encoding, cb) {
   cb(null, chunk);
 };
 
-},{"67":67,"69":69,"84":84}],66:[function(_dereq_,module,exports){
+},{"62":62,"64":64,"76":76}],61:[function(_dereq_,module,exports){
 (function (process){
 'use strict';
 
 module.exports = Readable;
 
 /*<replacement>*/
-var processNextTick = _dereq_(70);
+var processNextTick = _dereq_(65);
 /*</replacement>*/
 
 
 /*<replacement>*/
-var isArray = _dereq_(61);
+var isArray = _dereq_(56);
 /*</replacement>*/
 
 
 /*<replacement>*/
-var Buffer = _dereq_(56).Buffer;
+var Buffer = _dereq_(50).Buffer;
 /*</replacement>*/
 
 Readable.ReadableState = ReadableState;
 
-var EE = _dereq_(60).EventEmitter;
+var EE = _dereq_(54);
 
 /*<replacement>*/
-if (!EE.listenerCount) EE.listenerCount = function(emitter, type) {
+var EElistenerCount = function(emitter, type) {
   return emitter.listeners(type).length;
 };
 /*</replacement>*/
@@ -6252,23 +5788,24 @@ var Stream;
   Stream = _dereq_('st' + 'ream');
 }catch(_){}finally{
   if (!Stream)
-    Stream = _dereq_(60).EventEmitter;
+    Stream = _dereq_(54).EventEmitter;
 }}())
 /*</replacement>*/
 
-var Buffer = _dereq_(56).Buffer;
+var Buffer = _dereq_(50).Buffer;
 
 /*<replacement>*/
-var util = _dereq_(69);
-util.inherits = _dereq_(84);
+var util = _dereq_(64);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
 
 
 /*<replacement>*/
-var debug = _dereq_(55);
-if (debug && debug.debuglog) {
-  debug = debug.debuglog('stream');
+var debugUtil = _dereq_(49);
+var debug;
+if (debugUtil && debugUtil.debuglog) {
+  debug = debugUtil.debuglog('stream');
 } else {
   debug = function () {};
 }
@@ -6279,7 +5816,7 @@ var StringDecoder;
 util.inherits(Readable, Stream);
 
 function ReadableState(options, stream) {
-  var Duplex = _dereq_(64);
+  var Duplex = _dereq_(59);
 
   options = options || {};
 
@@ -6339,14 +5876,14 @@ function ReadableState(options, stream) {
   this.encoding = null;
   if (options.encoding) {
     if (!StringDecoder)
-      StringDecoder = _dereq_(77).StringDecoder;
+      StringDecoder = _dereq_(72).StringDecoder;
     this.decoder = new StringDecoder(options.encoding);
     this.encoding = options.encoding;
   }
 }
 
 function Readable(options) {
-  var Duplex = _dereq_(64);
+  var Duplex = _dereq_(59);
 
   if (!(this instanceof Readable))
     return new Readable(options);
@@ -6437,7 +5974,6 @@ function readableAddChunk(stream, state, chunk, encoding, addToFront) {
 }
 
 
-
 // if it's past the high water mark, we can push in some more.
 // Also, if we have no data yet, we can stand some
 // more bytes.  This is to work around cases where hwm=0,
@@ -6455,21 +5991,25 @@ function needMoreData(state) {
 // backwards compatibility.
 Readable.prototype.setEncoding = function(enc) {
   if (!StringDecoder)
-    StringDecoder = _dereq_(77).StringDecoder;
+    StringDecoder = _dereq_(72).StringDecoder;
   this._readableState.decoder = new StringDecoder(enc);
   this._readableState.encoding = enc;
   return this;
 };
 
-// Don't raise the hwm > 128MB
+// Don't raise the hwm > 8MB
 var MAX_HWM = 0x800000;
-function roundUpToNextPowerOf2(n) {
+function computeNewHighWaterMark(n) {
   if (n >= MAX_HWM) {
     n = MAX_HWM;
   } else {
     // Get the next highest power of 2
     n--;
-    for (var p = 1; p < 32; p <<= 1) n |= n >> p;
+    n |= n >>> 1;
+    n |= n >>> 2;
+    n |= n >>> 4;
+    n |= n >>> 8;
+    n |= n >>> 16;
     n++;
   }
   return n;
@@ -6498,7 +6038,7 @@ function howMuchToRead(n, state) {
   // power of 2, to prevent increasing it excessively in tiny
   // amounts.
   if (n > state.highWaterMark)
-    state.highWaterMark = roundUpToNextPowerOf2(n);
+    state.highWaterMark = computeNewHighWaterMark(n);
 
   // don't have that much.  return null, unless we've ended.
   if (n > state.length) {
@@ -6764,6 +6304,7 @@ Readable.prototype.pipe = function(dest, pipeOpts) {
   var ondrain = pipeOnDrain(src);
   dest.on('drain', ondrain);
 
+  var cleanedUp = false;
   function cleanup() {
     debug('cleanup');
     // cleanup event handlers once the pipe is broken
@@ -6775,6 +6316,8 @@ Readable.prototype.pipe = function(dest, pipeOpts) {
     src.removeListener('end', onend);
     src.removeListener('end', cleanup);
     src.removeListener('data', ondata);
+
+    cleanedUp = true;
 
     // if the reader is waiting for a drain event from this
     // specific writer, then it would cause it to never start
@@ -6791,9 +6334,16 @@ Readable.prototype.pipe = function(dest, pipeOpts) {
     debug('ondata');
     var ret = dest.write(chunk);
     if (false === ret) {
-      debug('false write response, pause',
-            src._readableState.awaitDrain);
-      src._readableState.awaitDrain++;
+      // If the user unpiped during `dest.write()`, it is possible
+      // to get stuck in a permanently paused state if that write
+      // also returned false.
+      if (state.pipesCount === 1 &&
+          state.pipes[0] === dest &&
+          src.listenerCount('data') === 1 &&
+          !cleanedUp) {
+        debug('false write response, pause', src._readableState.awaitDrain);
+        src._readableState.awaitDrain++;
+      }
       src.pause();
     }
   }
@@ -6804,7 +6354,7 @@ Readable.prototype.pipe = function(dest, pipeOpts) {
     debug('onerror', er);
     unpipe();
     dest.removeListener('error', onerror);
-    if (EE.listenerCount(dest, 'error') === 0)
+    if (EElistenerCount(dest, 'error') === 0)
       dest.emit('error', er);
   }
   // This is a brutally ugly hack to make sure that our error handler
@@ -6815,7 +6365,6 @@ Readable.prototype.pipe = function(dest, pipeOpts) {
     dest._events.error.unshift(onerror);
   else
     dest._events.error = [onerror, dest._events.error];
-
 
 
   // Both close and finish should trigger unpipe, but only once.
@@ -6854,7 +6403,7 @@ function pipeOnDrain(src) {
     debug('pipeOnDrain', state.awaitDrain);
     if (state.awaitDrain)
       state.awaitDrain--;
-    if (state.awaitDrain === 0 && EE.listenerCount(src, 'data')) {
+    if (state.awaitDrain === 0 && EElistenerCount(src, 'data')) {
       state.flowing = true;
       flow(src);
     }
@@ -7070,7 +6619,6 @@ Readable.prototype.wrap = function(stream) {
 };
 
 
-
 // exposed for testing purposes only.
 Readable._fromList = fromList;
 
@@ -7095,6 +6643,8 @@ function fromList(n, state) {
     // read it all, truncate the array.
     if (stringMode)
       ret = list.join('');
+    else if (list.length === 1)
+      ret = list[0];
     else
       ret = Buffer.concat(list, length);
     list.length = 0;
@@ -7176,8 +6726,8 @@ function indexOf (xs, x) {
   return -1;
 }
 
-}).call(this,_dereq_(62))
-},{"55":55,"56":56,"60":60,"61":61,"62":62,"64":64,"69":69,"70":70,"77":77,"84":84}],67:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57))
+},{"49":49,"50":50,"54":54,"56":56,"57":57,"59":59,"64":64,"65":65,"72":72,"76":76}],62:[function(_dereq_,module,exports){
 // a transform stream is a readable/writable stream where you do
 // something with the data.  Sometimes it's called a "filter",
 // but that's not a great name for it, since that implies a thing where
@@ -7224,11 +6774,11 @@ function indexOf (xs, x) {
 
 module.exports = Transform;
 
-var Duplex = _dereq_(64);
+var Duplex = _dereq_(59);
 
 /*<replacement>*/
-var util = _dereq_(69);
-util.inherits = _dereq_(84);
+var util = _dereq_(64);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
 util.inherits(Transform, Duplex);
@@ -7376,9 +6926,9 @@ function done(stream, er) {
   return stream.push(null);
 }
 
-},{"64":64,"69":69,"84":84}],68:[function(_dereq_,module,exports){
+},{"59":59,"64":64,"76":76}],63:[function(_dereq_,module,exports){
 // A bit simpler than readable streams.
-// Implement an async ._write(chunk, cb), and it'll handle all
+// Implement an async ._write(chunk, encoding, cb), and it'll handle all
 // the drain event emission and buffering.
 
 'use strict';
@@ -7386,20 +6936,27 @@ function done(stream, er) {
 module.exports = Writable;
 
 /*<replacement>*/
-var processNextTick = _dereq_(70);
+var processNextTick = _dereq_(65);
 /*</replacement>*/
 
 
 /*<replacement>*/
-var Buffer = _dereq_(56).Buffer;
+var Buffer = _dereq_(50).Buffer;
 /*</replacement>*/
 
 Writable.WritableState = WritableState;
 
 
 /*<replacement>*/
-var util = _dereq_(69);
-util.inherits = _dereq_(84);
+var util = _dereq_(64);
+util.inherits = _dereq_(76);
+/*</replacement>*/
+
+
+/*<replacement>*/
+var internalUtil = {
+  deprecate: _dereq_(66)
+};
 /*</replacement>*/
 
 
@@ -7410,11 +6967,11 @@ var Stream;
   Stream = _dereq_('st' + 'ream');
 }catch(_){}finally{
   if (!Stream)
-    Stream = _dereq_(60).EventEmitter;
+    Stream = _dereq_(54).EventEmitter;
 }}())
 /*</replacement>*/
 
-var Buffer = _dereq_(56).Buffer;
+var Buffer = _dereq_(50).Buffer;
 
 util.inherits(Writable, Stream);
 
@@ -7428,7 +6985,7 @@ function WriteReq(chunk, encoding, cb) {
 }
 
 function WritableState(options, stream) {
-  var Duplex = _dereq_(64);
+  var Duplex = _dereq_(59);
 
   options = options || {};
 
@@ -7528,16 +7085,16 @@ WritableState.prototype.getBuffer = function writableStateGetBuffer() {
 
 (function (){try {
 Object.defineProperty(WritableState.prototype, 'buffer', {
-  get: _dereq_(71)(function() {
+  get: internalUtil.deprecate(function() {
     return this.getBuffer();
-  }, '_writableState.buffer is deprecated. Use ' +
-      '_writableState.getBuffer() instead.')
+  }, '_writableState.buffer is deprecated. Use _writableState.getBuffer ' +
+     'instead.')
 });
 }catch(_){}}());
 
 
 function Writable(options) {
-  var Duplex = _dereq_(64);
+  var Duplex = _dereq_(59);
 
   // Writable ctor is applied to Duplexes, though they're not
   // instanceof Writable, they're instanceof Readable.
@@ -7898,7 +7455,7 @@ function endWritable(stream, state, cb) {
   state.ended = true;
 }
 
-},{"56":56,"60":60,"64":64,"69":69,"70":70,"71":71,"84":84}],69:[function(_dereq_,module,exports){
+},{"50":50,"54":54,"59":59,"64":64,"65":65,"66":66,"76":76}],64:[function(_dereq_,module,exports){
 (function (Buffer){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -8007,8 +7564,8 @@ exports.isBuffer = isBuffer;
 function objectToString(o) {
   return Object.prototype.toString.call(o);
 }
-}).call(this,_dereq_(56).Buffer)
-},{"56":56}],70:[function(_dereq_,module,exports){
+}).call(this,{"isBuffer":_dereq_(55)})
+},{"55":55}],65:[function(_dereq_,module,exports){
 (function (process){
 'use strict';
 module.exports = nextTick;
@@ -8024,8 +7581,8 @@ function nextTick(fn) {
   });
 }
 
-}).call(this,_dereq_(62))
-},{"62":62}],71:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57))
+},{"57":57}],66:[function(_dereq_,module,exports){
 (function (global){
 
 /**
@@ -8084,37 +7641,42 @@ function deprecate (fn, msg) {
  */
 
 function config (name) {
-  if (!global.localStorage) return false;
+  // accessing global.localStorage can trigger a DOMException in sandboxed iframes
+  try {
+    if (!global.localStorage) return false;
+  } catch (_) {
+    return false;
+  }
   var val = global.localStorage[name];
   if (null == val) return false;
   return String(val).toLowerCase() === 'true';
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],72:[function(_dereq_,module,exports){
-module.exports = _dereq_(65)
+},{}],67:[function(_dereq_,module,exports){
+module.exports = _dereq_(60)
 
-},{"65":65}],73:[function(_dereq_,module,exports){
+},{"60":60}],68:[function(_dereq_,module,exports){
 var Stream = (function (){
   try {
     return _dereq_('st' + 'ream'); // hack to fix a circular dependency issue when used with browserify
   } catch(_){}
 }());
-exports = module.exports = _dereq_(66);
+exports = module.exports = _dereq_(61);
 exports.Stream = Stream || exports;
 exports.Readable = exports;
-exports.Writable = _dereq_(68);
-exports.Duplex = _dereq_(64);
-exports.Transform = _dereq_(67);
-exports.PassThrough = _dereq_(65);
+exports.Writable = _dereq_(63);
+exports.Duplex = _dereq_(59);
+exports.Transform = _dereq_(62);
+exports.PassThrough = _dereq_(60);
 
-},{"64":64,"65":65,"66":66,"67":67,"68":68}],74:[function(_dereq_,module,exports){
-module.exports = _dereq_(67)
+},{"59":59,"60":60,"61":61,"62":62,"63":63}],69:[function(_dereq_,module,exports){
+module.exports = _dereq_(62)
 
-},{"67":67}],75:[function(_dereq_,module,exports){
-module.exports = _dereq_(68)
+},{"62":62}],70:[function(_dereq_,module,exports){
+module.exports = _dereq_(63)
 
-},{"68":68}],76:[function(_dereq_,module,exports){
+},{"63":63}],71:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -8138,15 +7700,15 @@ module.exports = _dereq_(68)
 
 module.exports = Stream;
 
-var EE = _dereq_(60).EventEmitter;
-var inherits = _dereq_(84);
+var EE = _dereq_(54).EventEmitter;
+var inherits = _dereq_(76);
 
 inherits(Stream, EE);
-Stream.Readable = _dereq_(73);
-Stream.Writable = _dereq_(75);
-Stream.Duplex = _dereq_(63);
-Stream.Transform = _dereq_(74);
-Stream.PassThrough = _dereq_(72);
+Stream.Readable = _dereq_(68);
+Stream.Writable = _dereq_(70);
+Stream.Duplex = _dereq_(58);
+Stream.Transform = _dereq_(69);
+Stream.PassThrough = _dereq_(67);
 
 // Backwards-compat with node 0.4.x
 Stream.Stream = Stream;
@@ -8243,7 +7805,7 @@ Stream.prototype.pipe = function(dest, options) {
   return dest;
 };
 
-},{"60":60,"63":63,"72":72,"73":73,"74":74,"75":75,"84":84}],77:[function(_dereq_,module,exports){
+},{"54":54,"58":58,"67":67,"68":68,"69":69,"70":70,"76":76}],72:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -8265,7 +7827,7 @@ Stream.prototype.pipe = function(dest, options) {
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-var Buffer = _dereq_(56).Buffer;
+var Buffer = _dereq_(50).Buffer;
 
 var isBufferEncoding = Buffer.isEncoding
   || function(encoding) {
@@ -8466,14 +8028,14 @@ function base64DetectIncompleteChar(buffer) {
   this.charLength = this.charReceived ? 3 : 0;
 }
 
-},{"56":56}],78:[function(_dereq_,module,exports){
+},{"50":50}],73:[function(_dereq_,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],79:[function(_dereq_,module,exports){
+},{}],74:[function(_dereq_,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -9000,7 +8562,7 @@ function isPrimitive(arg) {
 }
 exports.isPrimitive = isPrimitive;
 
-exports.isBuffer = _dereq_(78);
+exports.isBuffer = _dereq_(73);
 
 function objectToString(o) {
   return Object.prototype.toString.call(o);
@@ -9044,7 +8606,7 @@ exports.log = function() {
  *     prototype.
  * @param {function} superCtor Constructor function to inherit prototype from.
  */
-exports.inherits = _dereq_(84);
+exports.inherits = _dereq_(76);
 
 exports._extend = function(origin, add) {
   // Don't do anything if add isn't an object
@@ -9062,504 +8624,8 @@ function hasOwnProperty(obj, prop) {
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-}).call(this,_dereq_(62),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"62":62,"78":78,"84":84}],80:[function(_dereq_,module,exports){
-
-/**
- * This is the web browser implementation of `debug()`.
- *
- * Expose `debug()` as the module.
- */
-
-exports = module.exports = _dereq_(81);
-exports.log = log;
-exports.formatArgs = formatArgs;
-exports.save = save;
-exports.load = load;
-exports.useColors = useColors;
-exports.storage = 'undefined' != typeof chrome
-               && 'undefined' != typeof chrome.storage
-                  ? chrome.storage.local
-                  : localstorage();
-
-/**
- * Colors.
- */
-
-exports.colors = [
-  'lightseagreen',
-  'forestgreen',
-  'goldenrod',
-  'dodgerblue',
-  'darkorchid',
-  'crimson'
-];
-
-/**
- * Currently only WebKit-based Web Inspectors, Firefox >= v31,
- * and the Firebug extension (any Firefox version) are known
- * to support "%c" CSS customizations.
- *
- * TODO: add a `localStorage` variable to explicitly enable/disable colors
- */
-
-function useColors() {
-  // is webkit? http://stackoverflow.com/a/16459606/376773
-  return ('WebkitAppearance' in document.documentElement.style) ||
-    // is firebug? http://stackoverflow.com/a/398120/376773
-    (window.console && (console.firebug || (console.exception && console.table))) ||
-    // is firefox >= v31?
-    // https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
-    (navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31);
-}
-
-/**
- * Map %j to `JSON.stringify()`, since no Web Inspectors do that by default.
- */
-
-exports.formatters.j = function(v) {
-  return JSON.stringify(v);
-};
-
-
-/**
- * Colorize log arguments if enabled.
- *
- * @api public
- */
-
-function formatArgs() {
-  var args = arguments;
-  var useColors = this.useColors;
-
-  args[0] = (useColors ? '%c' : '')
-    + this.namespace
-    + (useColors ? ' %c' : ' ')
-    + args[0]
-    + (useColors ? '%c ' : ' ')
-    + '+' + exports.humanize(this.diff);
-
-  if (!useColors) return args;
-
-  var c = 'color: ' + this.color;
-  args = [args[0], c, 'color: inherit'].concat(Array.prototype.slice.call(args, 1));
-
-  // the final "%c" is somewhat tricky, because there could be other
-  // arguments passed either before or after the %c, so we need to
-  // figure out the correct index to insert the CSS into
-  var index = 0;
-  var lastC = 0;
-  args[0].replace(/%[a-z%]/g, function(match) {
-    if ('%%' === match) return;
-    index++;
-    if ('%c' === match) {
-      // we only are interested in the *last* %c
-      // (the user may have provided their own)
-      lastC = index;
-    }
-  });
-
-  args.splice(lastC, 0, c);
-  return args;
-}
-
-/**
- * Invokes `console.log()` when available.
- * No-op when `console.log` is not a "function".
- *
- * @api public
- */
-
-function log() {
-  // this hackery is required for IE8/9, where
-  // the `console.log` function doesn't have 'apply'
-  return 'object' === typeof console
-    && console.log
-    && Function.prototype.apply.call(console.log, console, arguments);
-}
-
-/**
- * Save `namespaces`.
- *
- * @param {String} namespaces
- * @api private
- */
-
-function save(namespaces) {
-  try {
-    if (null == namespaces) {
-      exports.storage.removeItem('debug');
-    } else {
-      exports.storage.debug = namespaces;
-    }
-  } catch(e) {}
-}
-
-/**
- * Load `namespaces`.
- *
- * @return {String} returns the previously persisted debug modes
- * @api private
- */
-
-function load() {
-  var r;
-  try {
-    r = exports.storage.debug;
-  } catch(e) {}
-  return r;
-}
-
-/**
- * Enable namespaces listed in `localStorage.debug` initially.
- */
-
-exports.enable(load());
-
-/**
- * Localstorage attempts to return the localstorage.
- *
- * This is necessary because safari throws
- * when a user disables cookies/localstorage
- * and you attempt to access it.
- *
- * @return {LocalStorage}
- * @api private
- */
-
-function localstorage(){
-  try {
-    return window.localStorage;
-  } catch (e) {}
-}
-
-},{"81":81}],81:[function(_dereq_,module,exports){
-
-/**
- * This is the common logic for both the Node.js and web browser
- * implementations of `debug()`.
- *
- * Expose `debug()` as the module.
- */
-
-exports = module.exports = debug;
-exports.coerce = coerce;
-exports.disable = disable;
-exports.enable = enable;
-exports.enabled = enabled;
-exports.humanize = _dereq_(82);
-
-/**
- * The currently active debug mode names, and names to skip.
- */
-
-exports.names = [];
-exports.skips = [];
-
-/**
- * Map of special "%n" handling functions, for the debug "format" argument.
- *
- * Valid key names are a single, lowercased letter, i.e. "n".
- */
-
-exports.formatters = {};
-
-/**
- * Previously assigned color.
- */
-
-var prevColor = 0;
-
-/**
- * Previous log timestamp.
- */
-
-var prevTime;
-
-/**
- * Select a color.
- *
- * @return {Number}
- * @api private
- */
-
-function selectColor() {
-  return exports.colors[prevColor++ % exports.colors.length];
-}
-
-/**
- * Create a debugger with the given `namespace`.
- *
- * @param {String} namespace
- * @return {Function}
- * @api public
- */
-
-function debug(namespace) {
-
-  // define the `disabled` version
-  function disabled() {
-  }
-  disabled.enabled = false;
-
-  // define the `enabled` version
-  function enabled() {
-
-    var self = enabled;
-
-    // set `diff` timestamp
-    var curr = +new Date();
-    var ms = curr - (prevTime || curr);
-    self.diff = ms;
-    self.prev = prevTime;
-    self.curr = curr;
-    prevTime = curr;
-
-    // add the `color` if not set
-    if (null == self.useColors) self.useColors = exports.useColors();
-    if (null == self.color && self.useColors) self.color = selectColor();
-
-    var args = Array.prototype.slice.call(arguments);
-
-    args[0] = exports.coerce(args[0]);
-
-    if ('string' !== typeof args[0]) {
-      // anything else let's inspect with %o
-      args = ['%o'].concat(args);
-    }
-
-    // apply any `formatters` transformations
-    var index = 0;
-    args[0] = args[0].replace(/%([a-z%])/g, function(match, format) {
-      // if we encounter an escaped % then don't increase the array index
-      if (match === '%%') return match;
-      index++;
-      var formatter = exports.formatters[format];
-      if ('function' === typeof formatter) {
-        var val = args[index];
-        match = formatter.call(self, val);
-
-        // now we need to remove `args[index]` since it's inlined in the `format`
-        args.splice(index, 1);
-        index--;
-      }
-      return match;
-    });
-
-    if ('function' === typeof exports.formatArgs) {
-      args = exports.formatArgs.apply(self, args);
-    }
-    var logFn = enabled.log || exports.log || console.log.bind(console);
-    logFn.apply(self, args);
-  }
-  enabled.enabled = true;
-
-  var fn = exports.enabled(namespace) ? enabled : disabled;
-
-  fn.namespace = namespace;
-
-  return fn;
-}
-
-/**
- * Enables a debug mode by namespaces. This can include modes
- * separated by a colon and wildcards.
- *
- * @param {String} namespaces
- * @api public
- */
-
-function enable(namespaces) {
-  exports.save(namespaces);
-
-  var split = (namespaces || '').split(/[\s,]+/);
-  var len = split.length;
-
-  for (var i = 0; i < len; i++) {
-    if (!split[i]) continue; // ignore empty strings
-    namespaces = split[i].replace(/\*/g, '.*?');
-    if (namespaces[0] === '-') {
-      exports.skips.push(new RegExp('^' + namespaces.substr(1) + '$'));
-    } else {
-      exports.names.push(new RegExp('^' + namespaces + '$'));
-    }
-  }
-}
-
-/**
- * Disable debug output.
- *
- * @api public
- */
-
-function disable() {
-  exports.enable('');
-}
-
-/**
- * Returns true if the given mode name is enabled, false otherwise.
- *
- * @param {String} name
- * @return {Boolean}
- * @api public
- */
-
-function enabled(name) {
-  var i, len;
-  for (i = 0, len = exports.skips.length; i < len; i++) {
-    if (exports.skips[i].test(name)) {
-      return false;
-    }
-  }
-  for (i = 0, len = exports.names.length; i < len; i++) {
-    if (exports.names[i].test(name)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Coerce `val`.
- *
- * @param {Mixed} val
- * @return {Mixed}
- * @api private
- */
-
-function coerce(val) {
-  if (val instanceof Error) return val.stack || val.message;
-  return val;
-}
-
-},{"82":82}],82:[function(_dereq_,module,exports){
-/**
- * Helpers.
- */
-
-var s = 1000;
-var m = s * 60;
-var h = m * 60;
-var d = h * 24;
-var y = d * 365.25;
-
-/**
- * Parse or format the given `val`.
- *
- * Options:
- *
- *  - `long` verbose formatting [false]
- *
- * @param {String|Number} val
- * @param {Object} options
- * @return {String|Number}
- * @api public
- */
-
-module.exports = function(val, options){
-  options = options || {};
-  if ('string' == typeof val) return parse(val);
-  return options["long"]
-    ? long(val)
-    : short(val);
-};
-
-/**
- * Parse the given `str` and return milliseconds.
- *
- * @param {String} str
- * @return {Number}
- * @api private
- */
-
-function parse(str) {
-  str = '' + str;
-  if (str.length > 10000) return;
-  var match = /^((?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|years?|yrs?|y)?$/i.exec(str);
-  if (!match) return;
-  var n = parseFloat(match[1]);
-  var type = (match[2] || 'ms').toLowerCase();
-  switch (type) {
-    case 'years':
-    case 'year':
-    case 'yrs':
-    case 'yr':
-    case 'y':
-      return n * y;
-    case 'days':
-    case 'day':
-    case 'd':
-      return n * d;
-    case 'hours':
-    case 'hour':
-    case 'hrs':
-    case 'hr':
-    case 'h':
-      return n * h;
-    case 'minutes':
-    case 'minute':
-    case 'mins':
-    case 'min':
-    case 'm':
-      return n * m;
-    case 'seconds':
-    case 'second':
-    case 'secs':
-    case 'sec':
-    case 's':
-      return n * s;
-    case 'milliseconds':
-    case 'millisecond':
-    case 'msecs':
-    case 'msec':
-    case 'ms':
-      return n;
-  }
-}
-
-/**
- * Short format for `ms`.
- *
- * @param {Number} ms
- * @return {String}
- * @api private
- */
-
-function short(ms) {
-  if (ms >= d) return Math.round(ms / d) + 'd';
-  if (ms >= h) return Math.round(ms / h) + 'h';
-  if (ms >= m) return Math.round(ms / m) + 'm';
-  if (ms >= s) return Math.round(ms / s) + 's';
-  return ms + 'ms';
-}
-
-/**
- * Long format for `ms`.
- *
- * @param {Number} ms
- * @return {String}
- * @api private
- */
-
-function long(ms) {
-  return plural(ms, d, 'day')
-    || plural(ms, h, 'hour')
-    || plural(ms, m, 'minute')
-    || plural(ms, s, 'second')
-    || ms + ' ms';
-}
-
-/**
- * Pluralization helper.
- */
-
-function plural(ms, n, name) {
-  if (ms < n) return;
-  if (ms < n * 1.5) return Math.floor(ms / n) + ' ' + name;
-  return Math.ceil(ms / n) + ' ' + name + 's';
-}
-
-},{}],83:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"57":57,"73":73,"76":76}],75:[function(_dereq_,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  *
@@ -9848,7 +8914,7 @@ function getCapacity(capacity) {
 
 module.exports = Deque;
 
-},{}],84:[function(_dereq_,module,exports){
+},{}],76:[function(_dereq_,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -9873,7 +8939,36 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],85:[function(_dereq_,module,exports){
+},{}],77:[function(_dereq_,module,exports){
+(function() {
+
+  var slice   = Array.prototype.slice,
+      each    = Array.prototype.forEach;
+
+  var extend = function(obj) {
+    if(typeof obj !== 'object') throw obj + ' is not an object' ;
+
+    var sources = slice.call(arguments, 1);
+
+    each.call(sources, function(source) {
+      if(source) {
+        for(var prop in source) {
+          if(typeof source[prop] === 'object' && obj[prop]) {
+            extend.call(obj, obj[prop], source[prop]);
+          } else {
+            obj[prop] = source[prop];
+          }
+        }
+      }
+    });
+
+    return obj;
+  }
+
+  this.extend = extend;
+
+}).call(this);
+},{}],78:[function(_dereq_,module,exports){
 module.exports = {
   encode: function (e) {
     var s = '';
@@ -9893,9 +8988,9 @@ module.exports = {
 }
 
 
-},{}],86:[function(_dereq_,module,exports){
+},{}],79:[function(_dereq_,module,exports){
 
-var inRange = _dereq_(111)
+var inRange = _dereq_(104)
 
 module.exports = function (compare) {
   var hooks = []
@@ -9928,15 +9023,15 @@ module.exports = function (compare) {
   }
 }
 
-},{"111":111}],87:[function(_dereq_,module,exports){
-var nut   = _dereq_(109)
-var shell = _dereq_(112) //the shell surrounds the nut
-var codec = _dereq_(88)
-var merge = _dereq_(108)
+},{"104":104}],80:[function(_dereq_,module,exports){
+var nut   = _dereq_(102)
+var shell = _dereq_(105) //the shell surrounds the nut
+var codec = _dereq_(81)
+var merge = _dereq_(101)
 
-var ReadStream = _dereq_(91)
+var ReadStream = _dereq_(84)
 
-var precodec = _dereq_(85)
+var precodec = _dereq_(78)
 
 module.exports = function (db, opts) {
 
@@ -9947,14 +9042,14 @@ module.exports = function (db, opts) {
 }
 
 
-},{"108":108,"109":109,"112":112,"85":85,"88":88,"91":91}],88:[function(_dereq_,module,exports){
+},{"101":101,"102":102,"105":105,"78":78,"81":81,"84":84}],81:[function(_dereq_,module,exports){
 /* Copyright (c) 2012-2014 LevelUP contributors
  * See list at <https://github.com/rvagg/node-levelup#contributing>
  * MIT License
  * <https://github.com/rvagg/node-levelup/blob/master/LICENSE.md>
  */
 
-var encodings = _dereq_(89)
+var encodings = _dereq_(82)
 
 function getKeyEncoder (options, op) {
   var type = ((op && op.keyEncoding) || options.keyEncoding) || 'utf8'
@@ -10032,7 +9127,7 @@ module.exports = {
   , decodeKey       : decodeKey
 }
 
-},{"89":89}],89:[function(_dereq_,module,exports){
+},{"82":82}],82:[function(_dereq_,module,exports){
 (function (Buffer){
 /* Copyright (c) 2012-2014 LevelUP contributors
  * See list at <https://github.com/rvagg/node-levelup#contributing>
@@ -10107,15 +9202,15 @@ module.exports = (function () {
 })()
 
 
-}).call(this,_dereq_(56).Buffer)
-},{"56":56}],90:[function(_dereq_,module,exports){
+}).call(this,_dereq_(50).Buffer)
+},{"50":50}],83:[function(_dereq_,module,exports){
 /* Copyright (c) 2012-2014 LevelUP contributors
  * See list at <https://github.com/rvagg/node-levelup#contributing>
  * MIT License
  * <https://github.com/rvagg/node-levelup/blob/master/LICENSE.md>
  */
 
-var createError   = _dereq_(94).create
+var createError   = _dereq_(87).create
   , LevelUPError  = createError('LevelUPError')
   , NotFoundError = createError('NotFoundError', LevelUPError)
 
@@ -10132,7 +9227,7 @@ module.exports = {
   , EncodingError       : createError('EncodingError', LevelUPError)
 }
 
-},{"94":94}],91:[function(_dereq_,module,exports){
+},{"87":87}],84:[function(_dereq_,module,exports){
 /* Copyright (c) 2012-2014 LevelUP contributors
  * See list at <https://github.com/rvagg/node-levelup#contributing>
  * MIT License <https://github.com/rvagg/node-levelup/blob/master/LICENSE.md>
@@ -10140,11 +9235,11 @@ module.exports = {
 
 // NOTE: we are fixed to readable-stream@1.0.x for now
 // for pure Streams2 across Node versions
-var Readable      = _dereq_(104).Readable
-  , inherits      = _dereq_(79).inherits
-  , extend        = _dereq_(105)
-  , EncodingError = _dereq_(90).EncodingError
-  , util          = _dereq_(92)
+var Readable      = _dereq_(97).Readable
+  , inherits      = _dereq_(74).inherits
+  , extend        = _dereq_(98)
+  , EncodingError = _dereq_(83).EncodingError
+  , util          = _dereq_(85)
 
 
 
@@ -10231,16 +9326,16 @@ ReadStream.prototype.toString = function () {
 module.exports = ReadStream
 
 
-},{"104":104,"105":105,"79":79,"90":90,"92":92}],92:[function(_dereq_,module,exports){
+},{"74":74,"83":83,"85":85,"97":97,"98":98}],85:[function(_dereq_,module,exports){
 /* Copyright (c) 2012-2014 LevelUP contributors
  * See list at <https://github.com/rvagg/node-levelup#contributing>
  * MIT License
  * <https://github.com/rvagg/node-levelup/blob/master/LICENSE.md>
  */
 
-var extend        = _dereq_(105)
-  , LevelUPError  = _dereq_(90).LevelUPError
-  , encodings     = _dereq_(89)
+var extend        = _dereq_(98)
+  , LevelUPError  = _dereq_(83).LevelUPError
+  , encodings     = _dereq_(82)
   , defaultOptions = {
         createIfMissing : true
       , errorIfExists   : false
@@ -10279,17 +9374,17 @@ function getLevelDOWN () {
   if (leveldown)
     return leveldown
 
-  var requiredVersion       = _dereq_(106).devDependencies.leveldown
+  var requiredVersion       = _dereq_(99).devDependencies.leveldown
     , missingLevelDOWNError = 'Could not locate LevelDOWN, try `npm install leveldown`'
     , leveldownVersion
 
   try {
-    leveldownVersion = _dereq_(55).version
+    leveldownVersion = _dereq_(49).version
   } catch (e) {
     throw new LevelUPError(missingLevelDOWNError)
   }
 
-  if (!_dereq_(55).satisfies(leveldownVersion, requiredVersion)) {
+  if (!_dereq_(49).satisfies(leveldownVersion, requiredVersion)) {
     throw new LevelUPError(
         'Installed version of LevelDOWN ('
       + leveldownVersion
@@ -10300,7 +9395,7 @@ function getLevelDOWN () {
   }
 
   try {
-    return leveldown = _dereq_(55)
+    return leveldown = _dereq_(49)
   } catch (e) {
     throw new LevelUPError(missingLevelDOWNError)
   }
@@ -10325,8 +9420,8 @@ module.exports = {
   , isDefined       : isDefined
 }
 
-},{"105":105,"106":106,"55":55,"89":89,"90":90}],93:[function(_dereq_,module,exports){
-var prr = _dereq_(95)
+},{"49":49,"82":82,"83":83,"98":98,"99":99}],86:[function(_dereq_,module,exports){
+var prr = _dereq_(88)
 
 function init (type, message, cause) {
   prr(this, {
@@ -10382,7 +9477,7 @@ module.exports = function (errno) {
   }
 }
 
-},{"95":95}],94:[function(_dereq_,module,exports){
+},{"88":88}],87:[function(_dereq_,module,exports){
 var all = module.exports.all = [
   {
     errno: -2,
@@ -10694,10 +9789,10 @@ all.forEach(function (error) {
   module.exports.code[error.code] = error
 })
 
-module.exports.custom = _dereq_(93)(module.exports)
+module.exports.custom = _dereq_(86)(module.exports)
 module.exports.create = module.exports.custom.createError
 
-},{"93":93}],95:[function(_dereq_,module,exports){
+},{"86":86}],88:[function(_dereq_,module,exports){
 /*!
   * prr
   * (c) 2013 Rod Vagg <rod@vagg.org>
@@ -10761,7 +9856,7 @@ module.exports.create = module.exports.custom.createError
 
   return prr
 })
-},{}],96:[function(_dereq_,module,exports){
+},{}],89:[function(_dereq_,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -10801,12 +9896,12 @@ var objectKeys = Object.keys || function (obj) {
 
 
 /*<replacement>*/
-var util = _dereq_(101);
-util.inherits = _dereq_(84);
+var util = _dereq_(94);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
-var Readable = _dereq_(98);
-var Writable = _dereq_(100);
+var Readable = _dereq_(91);
+var Writable = _dereq_(93);
 
 util.inherits(Duplex, Readable);
 
@@ -10853,8 +9948,8 @@ function forEach (xs, f) {
   }
 }
 
-}).call(this,_dereq_(62))
-},{"100":100,"101":101,"62":62,"84":84,"98":98}],97:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57))
+},{"57":57,"76":76,"91":91,"93":93,"94":94}],90:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -10882,11 +9977,11 @@ function forEach (xs, f) {
 
 module.exports = PassThrough;
 
-var Transform = _dereq_(99);
+var Transform = _dereq_(92);
 
 /*<replacement>*/
-var util = _dereq_(101);
-util.inherits = _dereq_(84);
+var util = _dereq_(94);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
 util.inherits(PassThrough, Transform);
@@ -10902,7 +9997,7 @@ PassThrough.prototype._transform = function(chunk, encoding, cb) {
   cb(null, chunk);
 };
 
-},{"101":101,"84":84,"99":99}],98:[function(_dereq_,module,exports){
+},{"76":76,"92":92,"94":94}],91:[function(_dereq_,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -10928,17 +10023,17 @@ PassThrough.prototype._transform = function(chunk, encoding, cb) {
 module.exports = Readable;
 
 /*<replacement>*/
-var isArray = _dereq_(102);
+var isArray = _dereq_(95);
 /*</replacement>*/
 
 
 /*<replacement>*/
-var Buffer = _dereq_(56).Buffer;
+var Buffer = _dereq_(50).Buffer;
 /*</replacement>*/
 
 Readable.ReadableState = ReadableState;
 
-var EE = _dereq_(60).EventEmitter;
+var EE = _dereq_(54).EventEmitter;
 
 /*<replacement>*/
 if (!EE.listenerCount) EE.listenerCount = function(emitter, type) {
@@ -10946,11 +10041,11 @@ if (!EE.listenerCount) EE.listenerCount = function(emitter, type) {
 };
 /*</replacement>*/
 
-var Stream = _dereq_(76);
+var Stream = _dereq_(71);
 
 /*<replacement>*/
-var util = _dereq_(101);
-util.inherits = _dereq_(84);
+var util = _dereq_(94);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
 var StringDecoder;
@@ -11019,7 +10114,7 @@ function ReadableState(options, stream) {
   this.encoding = null;
   if (options.encoding) {
     if (!StringDecoder)
-      StringDecoder = _dereq_(103).StringDecoder;
+      StringDecoder = _dereq_(96).StringDecoder;
     this.decoder = new StringDecoder(options.encoding);
     this.encoding = options.encoding;
   }
@@ -11120,7 +10215,7 @@ function needMoreData(state) {
 // backwards compatibility.
 Readable.prototype.setEncoding = function(enc) {
   if (!StringDecoder)
-    StringDecoder = _dereq_(103).StringDecoder;
+    StringDecoder = _dereq_(96).StringDecoder;
   this._readableState.decoder = new StringDecoder(enc);
   this._readableState.encoding = enc;
 };
@@ -11887,8 +10982,8 @@ function indexOf (xs, x) {
   return -1;
 }
 
-}).call(this,_dereq_(62))
-},{"101":101,"102":102,"103":103,"56":56,"60":60,"62":62,"76":76,"84":84}],99:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57))
+},{"50":50,"54":54,"57":57,"71":71,"76":76,"94":94,"95":95,"96":96}],92:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -11955,11 +11050,11 @@ function indexOf (xs, x) {
 
 module.exports = Transform;
 
-var Duplex = _dereq_(96);
+var Duplex = _dereq_(89);
 
 /*<replacement>*/
-var util = _dereq_(101);
-util.inherits = _dereq_(84);
+var util = _dereq_(94);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
 util.inherits(Transform, Duplex);
@@ -12100,7 +11195,7 @@ function done(stream, er) {
   return stream.push(null);
 }
 
-},{"101":101,"84":84,"96":96}],100:[function(_dereq_,module,exports){
+},{"76":76,"89":89,"94":94}],93:[function(_dereq_,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -12130,18 +11225,18 @@ function done(stream, er) {
 module.exports = Writable;
 
 /*<replacement>*/
-var Buffer = _dereq_(56).Buffer;
+var Buffer = _dereq_(50).Buffer;
 /*</replacement>*/
 
 Writable.WritableState = WritableState;
 
 
 /*<replacement>*/
-var util = _dereq_(101);
-util.inherits = _dereq_(84);
+var util = _dereq_(94);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
-var Stream = _dereq_(76);
+var Stream = _dereq_(71);
 
 util.inherits(Writable, Stream);
 
@@ -12223,7 +11318,7 @@ function WritableState(options, stream) {
 }
 
 function Writable(options) {
-  var Duplex = _dereq_(96);
+  var Duplex = _dereq_(89);
 
   // Writable ctor is applied to Duplexes, though they're not
   // instanceof Writable, they're instanceof Readable.
@@ -12489,24 +11584,132 @@ function endWritable(stream, state, cb) {
   state.ended = true;
 }
 
-}).call(this,_dereq_(62))
-},{"101":101,"56":56,"62":62,"76":76,"84":84,"96":96}],101:[function(_dereq_,module,exports){
-arguments[4][69][0].apply(exports,arguments)
-},{"56":56,"69":69}],102:[function(_dereq_,module,exports){
-arguments[4][61][0].apply(exports,arguments)
-},{"61":61}],103:[function(_dereq_,module,exports){
-arguments[4][77][0].apply(exports,arguments)
-},{"56":56,"77":77}],104:[function(_dereq_,module,exports){
-var Stream = _dereq_(76); // hack to fix a circular dependency issue when used with browserify
-exports = module.exports = _dereq_(98);
+}).call(this,_dereq_(57))
+},{"50":50,"57":57,"71":71,"76":76,"89":89,"94":94}],94:[function(_dereq_,module,exports){
+(function (Buffer){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// NOTE: These type checking functions intentionally don't use `instanceof`
+// because it is fragile and can be easily faked with `Object.create()`.
+function isArray(ar) {
+  return Array.isArray(ar);
+}
+exports.isArray = isArray;
+
+function isBoolean(arg) {
+  return typeof arg === 'boolean';
+}
+exports.isBoolean = isBoolean;
+
+function isNull(arg) {
+  return arg === null;
+}
+exports.isNull = isNull;
+
+function isNullOrUndefined(arg) {
+  return arg == null;
+}
+exports.isNullOrUndefined = isNullOrUndefined;
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+exports.isNumber = isNumber;
+
+function isString(arg) {
+  return typeof arg === 'string';
+}
+exports.isString = isString;
+
+function isSymbol(arg) {
+  return typeof arg === 'symbol';
+}
+exports.isSymbol = isSymbol;
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+exports.isUndefined = isUndefined;
+
+function isRegExp(re) {
+  return isObject(re) && objectToString(re) === '[object RegExp]';
+}
+exports.isRegExp = isRegExp;
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+exports.isObject = isObject;
+
+function isDate(d) {
+  return isObject(d) && objectToString(d) === '[object Date]';
+}
+exports.isDate = isDate;
+
+function isError(e) {
+  return isObject(e) &&
+      (objectToString(e) === '[object Error]' || e instanceof Error);
+}
+exports.isError = isError;
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+exports.isFunction = isFunction;
+
+function isPrimitive(arg) {
+  return arg === null ||
+         typeof arg === 'boolean' ||
+         typeof arg === 'number' ||
+         typeof arg === 'string' ||
+         typeof arg === 'symbol' ||  // ES6 symbol
+         typeof arg === 'undefined';
+}
+exports.isPrimitive = isPrimitive;
+
+function isBuffer(arg) {
+  return Buffer.isBuffer(arg);
+}
+exports.isBuffer = isBuffer;
+
+function objectToString(o) {
+  return Object.prototype.toString.call(o);
+}
+}).call(this,{"isBuffer":_dereq_(55)})
+},{"55":55}],95:[function(_dereq_,module,exports){
+arguments[4][56][0].apply(exports,arguments)
+},{"56":56}],96:[function(_dereq_,module,exports){
+arguments[4][72][0].apply(exports,arguments)
+},{"50":50,"72":72}],97:[function(_dereq_,module,exports){
+var Stream = _dereq_(71); // hack to fix a circular dependency issue when used with browserify
+exports = module.exports = _dereq_(91);
 exports.Stream = Stream;
 exports.Readable = exports;
-exports.Writable = _dereq_(100);
-exports.Duplex = _dereq_(96);
-exports.Transform = _dereq_(99);
-exports.PassThrough = _dereq_(97);
+exports.Writable = _dereq_(93);
+exports.Duplex = _dereq_(89);
+exports.Transform = _dereq_(92);
+exports.PassThrough = _dereq_(90);
 
-},{"100":100,"76":76,"96":96,"97":97,"98":98,"99":99}],105:[function(_dereq_,module,exports){
+},{"71":71,"89":89,"90":90,"91":91,"92":92,"93":93}],98:[function(_dereq_,module,exports){
 module.exports = extend
 
 function extend() {
@@ -12525,7 +11728,7 @@ function extend() {
     return target
 }
 
-},{}],106:[function(_dereq_,module,exports){
+},{}],99:[function(_dereq_,module,exports){
 module.exports={
   "name": "levelup",
   "description": "Fast & simple storage - a Node.js-style LevelDB wrapper",
@@ -12650,18 +11853,34 @@ module.exports={
     "alltests": "npm test && npm run-script functionaltests"
   },
   "license": "MIT",
-  "readme": "LevelUP\n=======\n\n![LevelDB Logo](https://0.gravatar.com/avatar/a498b122aecb7678490a38bb593cc12d)\n\n**Fast & simple storage - a Node.js-style LevelDB wrapper**\n\n[![Build Status](https://secure.travis-ci.org/rvagg/node-levelup.png)](http://travis-ci.org/rvagg/node-levelup)\n\n[![NPM](https://nodei.co/npm/levelup.png?stars&downloads&downloadRank)](https://nodei.co/npm/levelup/) [![NPM](https://nodei.co/npm-dl/levelup.png?months=6&height=3)](https://nodei.co/npm/levelup/)\n\n\n  * <a href=\"#intro\">Introduction</a>\n  * <a href=\"#leveldown\">Relationship to LevelDOWN</a>\n  * <a href=\"#platforms\">Tested &amp; supported platforms</a>\n  * <a href=\"#basic\">Basic usage</a>\n  * <a href=\"#api\">API</a>\n  * <a href=\"#events\">Events</a>\n  * <a href=\"#json\">JSON data</a>\n  * <a href=\"#custom_encodings\">Custom encodings</a>\n  * <a href=\"#extending\">Extending LevelUP</a>\n  * <a href=\"#multiproc\">Multi-process access</a>\n  * <a href=\"#support\">Getting support</a>\n  * <a href=\"#contributing\">Contributing</a>\n  * <a href=\"#licence\">Licence &amp; copyright</a>\n\n<a name=\"intro\"></a>\nIntroduction\n------------\n\n**[LevelDB](http://code.google.com/p/leveldb/)** is a simple key/value data store built by Google, inspired by BigTable. It's used in Google Chrome and many other products. LevelDB supports arbitrary byte arrays as both keys and values, singular *get*, *put* and *delete* operations, *batched put and delete*, bi-directional iterators and simple compression using the very fast [Snappy](http://code.google.com/p/snappy/) algorithm.\n\n**LevelUP** aims to expose the features of LevelDB in a **Node.js-friendly way**. All standard `Buffer` encoding types are supported, as is a special JSON encoding. LevelDB's iterators are exposed as a Node.js-style **readable stream** a matching **writeable stream** converts writes to *batch* operations.\n\nLevelDB stores entries **sorted lexicographically by keys**. This makes LevelUP's <a href=\"#createReadStream\"><code>ReadStream</code></a> interface a very powerful query mechanism.\n\n**LevelUP** is an **OPEN Open Source Project**, see the <a href=\"#contributing\">Contributing</a> section to find out what this means.\n\n<a name=\"leveldown\"></a>\nRelationship to LevelDOWN\n-------------------------\n\nLevelUP is designed to be backed by **[LevelDOWN](https://github.com/rvagg/node-leveldown/)** which provides a pure C++ binding to LevelDB and can be used as a stand-alone package if required.\n\n**As of version 0.9, LevelUP no longer requires LevelDOWN as a dependency so you must `npm install leveldown` when you install LevelUP.**\n\nLevelDOWN is now optional because LevelUP can be used with alternative backends, such as **[level.js](https://github.com/maxogden/level.js)** in the browser or [MemDOWN](https://github.com/rvagg/node-memdown) for a pure in-memory store.\n\nLevelUP will look for LevelDOWN and throw an error if it can't find it in its Node `require()` path. It will also tell you if the installed version of LevelDOWN is incompatible.\n\n**The [level](https://github.com/level/level) package is available as an alternative installation mechanism.** Install it instead to automatically get both LevelUP & LevelDOWN. It exposes LevelUP on its export (i.e. you can `var leveldb = require('level')`).\n\n\n<a name=\"platforms\"></a>\nTested & supported platforms\n----------------------------\n\n  * **Linux**: including ARM platforms such as Raspberry Pi *and Kindle!*\n  * **Mac OS**\n  * **Solaris**: including Joyent's SmartOS & Nodejitsu\n  * **Windows**: Node 0.10 and above only. See installation instructions for *node-gyp's* dependencies [here](https://github.com/TooTallNate/node-gyp#installation), you'll need these (free) components from Microsoft to compile and run any native Node add-on in Windows.\n\n<a name=\"basic\"></a>\nBasic usage\n-----------\n\nFirst you need to install LevelUP!\n\n```sh\n$ npm install levelup leveldown\n```\n\nOr\n\n```sh\n$ npm install level\n```\n\n*(this second option requires you to use LevelUP by calling `var levelup = require('level')`)*\n\n\nAll operations are asynchronous although they don't necessarily require a callback if you don't need to know when the operation was performed.\n\n```js\nvar levelup = require('levelup')\n\n// 1) Create our database, supply location and options.\n//    This will create or open the underlying LevelDB store.\nvar db = levelup('./mydb')\n\n// 2) put a key & value\ndb.put('name', 'LevelUP', function (err) {\n  if (err) return console.log('Ooops!', err) // some kind of I/O error\n\n  // 3) fetch by key\n  db.get('name', function (err, value) {\n    if (err) return console.log('Ooops!', err) // likely the key was not found\n\n    // ta da!\n    console.log('name=' + value)\n  })\n})\n```\n\n<a name=\"api\"></a>\n## API\n\n  * <a href=\"#ctor\"><code><b>levelup()</b></code></a>\n  * <a href=\"#open\"><code>db.<b>open()</b></code></a>\n  * <a href=\"#close\"><code>db.<b>close()</b></code></a>\n  * <a href=\"#put\"><code>db.<b>put()</b></code></a>\n  * <a href=\"#get\"><code>db.<b>get()</b></code></a>\n  * <a href=\"#del\"><code>db.<b>del()</b></code></a>\n  * <a href=\"#batch\"><code>db.<b>batch()</b></code> *(array form)*</a>\n  * <a href=\"#batch_chained\"><code>db.<b>batch()</b></code> *(chained form)*</a>\n  * <a href=\"#isOpen\"><code>db.<b>isOpen()</b></code></a>\n  * <a href=\"#isClosed\"><code>db.<b>isClosed()</b></code></a>\n  * <a href=\"#createReadStream\"><code>db.<b>createReadStream()</b></code></a>\n  * <a href=\"#createKeyStream\"><code>db.<b>createKeyStream()</b></code></a>\n  * <a href=\"#createValueStream\"><code>db.<b>createValueStream()</b></code></a>\n  * <a href=\"#createWriteStream\"><code>db.<b>createWriteStream()</b></code></a>\n\n### Special operations exposed by LevelDOWN\n\n  * <a href=\"#approximateSize\"><code>db.db.<b>approximateSize()</b></code></a>\n  * <a href=\"#getProperty\"><code>db.db.<b>getProperty()</b></code></a>\n  * <a href=\"#destroy\"><code><b>leveldown.destroy()</b></code></a>\n  * <a href=\"#repair\"><code><b>leveldown.repair()</b></code></a>\n\n\n--------------------------------------------------------\n<a name=\"ctor\"></a>\n### levelup(location[, options[, callback]])\n### levelup(options[, callback ])\n### levelup(db[, callback ])\n<code>levelup()</code> is the main entry point for creating a new LevelUP instance and opening the underlying store with LevelDB.\n\nThis function returns a new instance of LevelUP and will also initiate an <a href=\"#open\"><code>open()</code></a> operation. Opening the database is an asynchronous operation which will trigger your callback if you provide one. The callback should take the form: `function (err, db) {}` where the `db` is the LevelUP instance. If you don't provide a callback, any read & write operations are simply queued internally until the database is fully opened.\n\nThis leads to two alternative ways of managing a new LevelUP instance:\n\n```js\nlevelup(location, options, function (err, db) {\n  if (err) throw err\n  db.get('foo', function (err, value) {\n    if (err) return console.log('foo does not exist')\n    console.log('got foo =', value)\n  })\n})\n\n// vs the equivalent:\n\nvar db = levelup(location, options) // will throw if an error occurs\ndb.get('foo', function (err, value) {\n  if (err) return console.log('foo does not exist')\n  console.log('got foo =', value)\n})\n```\n\nThe `location` argument is available as a read-only property on the returned LevelUP instance.\n\nThe `levelup(options, callback)` form (with optional `callback`) is only available where you provide a valid `'db'` property on the options object (see below). Only for back-ends that don't require a `location` argument, such as [MemDOWN](https://github.com/rvagg/memdown).\n\nFor example:\n\n```js\nvar levelup = require('levelup')\nvar memdown = require('memdown')\nvar db = levelup({ db: memdown })\n```\n\nThe `levelup(db, callback)` form (with optional `callback`) is only available where `db` is a factory function, as would be provided as a `'db'` property on an `options` object (see below). Only for back-ends that don't require a `location` argument, such as [MemDOWN](https://github.com/rvagg/memdown).\n\nFor example:\n\n```js\nvar levelup = require('levelup')\nvar memdown = require('memdown')\nvar db = levelup(memdown)\n```\n\n#### `options`\n\n`levelup()` takes an optional options object as its second argument; the following properties are accepted:\n\n* `'createIfMissing'` *(boolean, default: `true`)*: If `true`, will initialise an empty database at the specified location if one doesn't already exist. If `false` and a database doesn't exist you will receive an error in your `open()` callback and your database won't open.\n\n* `'errorIfExists'` *(boolean, default: `false`)*: If `true`, you will receive an error in your `open()` callback if the database exists at the specified location.\n\n* `'compression'` *(boolean, default: `true`)*: If `true`, all *compressible* data will be run through the Snappy compression algorithm before being stored. Snappy is very fast and shouldn't gain much speed by disabling so leave this on unless you have good reason to turn it off.\n\n* `'cacheSize'` *(number, default: `8 * 1024 * 1024`)*: The size (in bytes) of the in-memory [LRU](http://en.wikipedia.org/wiki/Cache_algorithms#Least_Recently_Used) cache with frequently used uncompressed block contents. \n\n* `'keyEncoding'` and `'valueEncoding'` *(string, default: `'utf8'`)*: The encoding of the keys and values passed through Node.js' `Buffer` implementation (see [Buffer#toString()](http://nodejs.org/docs/latest/api/buffer.html#buffer_buf_tostring_encoding_start_end)).\n  <p><code>'utf8'</code> is the default encoding for both keys and values so you can simply pass in strings and expect strings from your <code>get()</code> operations. You can also pass <code>Buffer</code> objects as keys and/or values and conversion will be performed.</p>\n  <p>Supported encodings are: hex, utf8, ascii, binary, base64, ucs2, utf16le.</p>\n  <p><code>'json'</code> encoding is also supported, see below.</p>\n\n* `'db'` *(object, default: LevelDOWN)*: LevelUP is backed by [LevelDOWN](https://github.com/rvagg/node-leveldown/) to provide an interface to LevelDB. You can completely replace the use of LevelDOWN by providing a \"factory\" function that will return a LevelDOWN API compatible object given a `location` argument. For further information, see [MemDOWN](https://github.com/rvagg/node-memdown/), a fully LevelDOWN API compatible replacement that uses a memory store rather than LevelDB. Also see [Abstract LevelDOWN](http://github.com/rvagg/node-abstract-leveldown), a partial implementation of the LevelDOWN API that can be used as a base prototype for a LevelDOWN substitute.\n\nAdditionally, each of the main interface methods accept an optional options object that can be used to override `'keyEncoding'` and `'valueEncoding'`.\n\n--------------------------------------------------------\n<a name=\"open\"></a>\n### db.open([callback])\n<code>open()</code> opens the underlying LevelDB store. In general **you should never need to call this method directly** as it's automatically called by <a href=\"#ctor\"><code>levelup()</code></a>.\n\nHowever, it is possible to *reopen* a database after it has been closed with <a href=\"#close\"><code>close()</code></a>, although this is not generally advised.\n\n--------------------------------------------------------\n<a name=\"close\"></a>\n### db.close([callback])\n<code>close()</code> closes the underlying LevelDB store. The callback will receive any error encountered during closing as the first argument.\n\nYou should always clean up your LevelUP instance by calling `close()` when you no longer need it to free up resources. A LevelDB store cannot be opened by multiple instances of LevelDB/LevelUP simultaneously.\n\n--------------------------------------------------------\n<a name=\"put\"></a>\n### db.put(key, value[, options][, callback])\n<code>put()</code> is the primary method for inserting data into the store. Both the `key` and `value` can be arbitrary data objects.\n\nThe callback argument is optional but if you don't provide one and an error occurs then expect the error to be thrown.\n\n#### `options`\n\nEncoding of the `key` and `value` objects will adhere to `'keyEncoding'` and `'valueEncoding'` options provided to <a href=\"#ctor\"><code>levelup()</code></a>, although you can provide alternative encoding settings in the options for `put()` (it's recommended that you stay consistent in your encoding of keys and values in a single store).\n\nIf you provide a `'sync'` value of `true` in your `options` object, LevelDB will perform a synchronous write of the data; although the operation will be asynchronous as far as Node is concerned. Normally, LevelDB passes the data to the operating system for writing and returns immediately, however a synchronous write will use `fsync()` or equivalent so your callback won't be triggered until the data is actually on disk. Synchronous filesystem writes are **significantly** slower than asynchronous writes but if you want to be absolutely sure that the data is flushed then you can use `'sync': true`.\n\n--------------------------------------------------------\n<a name=\"get\"></a>\n### db.get(key[, options][, callback])\n<code>get()</code> is the primary method for fetching data from the store. The `key` can be an arbitrary data object. If it doesn't exist in the store then the callback will receive an error as its first argument. A not-found err object will be of type `'NotFoundError'` so you can `err.type == 'NotFoundError'` or you can perform a truthy test on the property `err.notFound`.\n\n```js\ndb.get('foo', function (err, value) {\n  if (err) {\n    if (err.notFound) {\n      // handle a 'NotFoundError' here\n      return\n    }\n    // I/O or other error, pass it up the callback chain\n    return callback(err)\n  }\n\n  // .. handle `value` here\n})\n```\n\n#### `options`\n\nEncoding of the `key` object will adhere to the `'keyEncoding'` option provided to <a href=\"#ctor\"><code>levelup()</code></a>, although you can provide alternative encoding settings in the options for `get()` (it's recommended that you stay consistent in your encoding of keys and values in a single store).\n\nLevelDB will by default fill the in-memory LRU Cache with data from a call to get. Disabling this is done by setting `fillCache` to `false`. \n\n--------------------------------------------------------\n<a name=\"del\"></a>\n### db.del(key[, options][, callback])\n<code>del()</code> is the primary method for removing data from the store.\n\n#### `options`\n\nEncoding of the `key` object will adhere to the `'keyEncoding'` option provided to <a href=\"#ctor\"><code>levelup()</code></a>, although you can provide alternative encoding settings in the options for `del()` (it's recommended that you stay consistent in your encoding of keys and values in a single store).\n\nA `'sync'` option can also be passed, see <a href=\"#put\"><code>put()</code></a> for details on how this works.\n\n--------------------------------------------------------\n<a name=\"batch\"></a>\n### db.batch(array[, options][, callback]) *(array form)*\n<code>batch()</code> can be used for very fast bulk-write operations (both *put* and *delete*). The `array` argument should contain a list of operations to be executed sequentially, although as a whole they are performed as an atomic operation inside LevelDB. Each operation is contained in an object having the following properties: `type`, `key`, `value`, where the *type* is either `'put'` or `'del'`. In the case of `'del'` the `'value'` property is ignored. Any entries with a `'key'` of `null` or `undefined` will cause an error to be returned on the `callback` and any `'type': 'put'` entry with a `'value'` of `null` or `undefined` will return an error.\n\n```js\nvar ops = [\n    { type: 'del', key: 'father' }\n  , { type: 'put', key: 'name', value: 'Yuri Irsenovich Kim' }\n  , { type: 'put', key: 'dob', value: '16 February 1941' }\n  , { type: 'put', key: 'spouse', value: 'Kim Young-sook' }\n  , { type: 'put', key: 'occupation', value: 'Clown' }\n]\n\ndb.batch(ops, function (err) {\n  if (err) return console.log('Ooops!', err)\n  console.log('Great success dear leader!')\n})\n```\n\n#### `options`\n\nSee <a href=\"#put\"><code>put()</code></a> for a discussion on the `options` object. You can overwrite default `'keyEncoding'` and `'valueEncoding'` and also specify the use of `sync` filesystem operations.\n\nIn addition to encoding options for the whole batch you can also overwrite the encoding per operation, like:\n\n```js\nvar ops = [{\n    type          : 'put'\n  , key           : new Buffer([1, 2, 3])\n  , value         : { some: 'json' }\n  , keyEncoding   : 'binary'\n  , valueEncoding : 'json'\n}]\n```\n\n--------------------------------------------------------\n<a name=\"batch_chained\"></a>\n### db.batch() *(chained form)*\n<code>batch()</code>, when called with no arguments will return a `Batch` object which can be used to build, and eventually commit, an atomic LevelDB batch operation. Depending on how it's used, it is possible to obtain greater performance when using the chained form of `batch()` over the array form.\n\n```js\ndb.batch()\n  .del('father')\n  .put('name', 'Yuri Irsenovich Kim')\n  .put('dob', '16 February 1941')\n  .put('spouse', 'Kim Young-sook')\n  .put('occupation', 'Clown')\n  .write(function () { console.log('Done!') })\n```\n\n<b><code>batch.put(key, value[, options])</code></b>\n\nQueue a *put* operation on the current batch, not committed until a `write()` is called on the batch.\n\nThe optional `options` argument can be used to override the default `'keyEncoding'` and/or `'valueEncoding'`.\n\nThis method may `throw` a `WriteError` if there is a problem with your put (such as the `value` being `null` or `undefined`).\n\n<b><code>batch.del(key[, options])</code></b>\n\nQueue a *del* operation on the current batch, not committed until a `write()` is called on the batch.\n\nThe optional `options` argument can be used to override the default `'keyEncoding'`.\n\nThis method may `throw` a `WriteError` if there is a problem with your delete.\n\n<b><code>batch.clear()</code></b>\n\nClear all queued operations on the current batch, any previous operations will be discarded.\n\n<b><code>batch.write([callback])</code></b>\n\nCommit the queued operations for this batch. All operations not *cleared* will be written to the database atomically, that is, they will either all succeed or fail with no partial commits. The optional `callback` will be called when the operation has completed with an *error* argument if an error has occurred; if no `callback` is supplied and an error occurs then this method will `throw` a `WriteError`.\n\n\n--------------------------------------------------------\n<a name=\"isOpen\"></a>\n### db.isOpen()\n\nA LevelUP object can be in one of the following states:\n\n  * *\"new\"*     - newly created, not opened or closed\n  * *\"opening\"* - waiting for the database to be opened\n  * *\"open\"*    - successfully opened the database, available for use\n  * *\"closing\"* - waiting for the database to be closed\n  * *\"closed\"*  - database has been successfully closed, should not be used\n\n`isOpen()` will return `true` only when the state is \"open\".\n\n--------------------------------------------------------\n<a name=\"isClosed\"></a>\n### db.isClosed()\n\n*See <a href=\"#put\"><code>isOpen()</code></a>*\n\n`isClosed()` will return `true` only when the state is \"closing\" *or* \"closed\", it can be useful for determining if read and write operations are permissible.\n\n--------------------------------------------------------\n<a name=\"createReadStream\"></a>\n### db.createReadStream([options])\n\nYou can obtain a **ReadStream** of the full database by calling the `createReadStream()` method. The resulting stream is a complete Node.js-style [Readable Stream](http://nodejs.org/docs/latest/api/stream.html#stream_readable_stream) where `'data'` events emit objects with `'key'` and `'value'` pairs. You can also use the `gt`, `lt` and `limit` options to control the range of keys that are streamed.\n\n```js\ndb.createReadStream()\n  .on('data', function (data) {\n    console.log(data.key, '=', data.value)\n  })\n  .on('error', function (err) {\n    console.log('Oh my!', err)\n  })\n  .on('close', function () {\n    console.log('Stream closed')\n  })\n  .on('end', function () {\n    console.log('Stream closed')\n  })\n```\n\nThe standard `pause()`, `resume()` and `destroy()` methods are implemented on the ReadStream, as is `pipe()` (see below). `'data'`, '`error'`, `'end'` and `'close'` events are emitted.\n\nAdditionally, you can supply an options object as the first parameter to `createReadStream()` with the following options:\n\n* `'gt'` (greater than), `'gte'` (greater than or equal) define the lower bound of the range to be streamed. Only records where the key is greater than (or equal to) this option will be included in the range. When `reverse=true` the order will be reversed, but the records streamed will be the same.\n\n* `'lt'` (less than), `'lte'` (less than or equal) define the higher bound of the range to be streamed. Only key/value pairs where the key is less than (or equal to) this option will be included in the range. When `reverse=true` the order will be reversed, but the records streamed will be the same.\n\n* `'start', 'end'` legacy ranges - instead use `'gte', 'lte'`\n\n* `'reverse'` *(boolean, default: `false`)*: a boolean, set true and the stream output will be reversed. Beware that due to the way LevelDB works, a reverse seek will be slower than a forward seek.\n\n* `'keys'` *(boolean, default: `true`)*: whether the `'data'` event should contain keys. If set to `true` and `'values'` set to `false` then `'data'` events will simply be keys, rather than objects with a `'key'` property. Used internally by the `createKeyStream()` method.\n\n* `'values'` *(boolean, default: `true`)*: whether the `'data'` event should contain values. If set to `true` and `'keys'` set to `false` then `'data'` events will simply be values, rather than objects with a `'value'` property. Used internally by the `createValueStream()` method.\n\n* `'limit'` *(number, default: `-1`)*: limit the number of results collected by this stream. This number represents a *maximum* number of results and may not be reached if you get to the end of the data first. A value of `-1` means there is no limit. When `reverse=true` the highest keys will be returned instead of the lowest keys.\n\n* `'fillCache'` *(boolean, default: `false`)*: wheather LevelDB's LRU-cache should be filled with data read.\n\n* `'keyEncoding'` / `'valueEncoding'` *(string)*: the encoding applied to each read piece of data.\n\n--------------------------------------------------------\n<a name=\"createKeyStream\"></a>\n### db.createKeyStream([options])\n\nA **KeyStream** is a **ReadStream** where the `'data'` events are simply the keys from the database so it can be used like a traditional stream rather than an object stream.\n\nYou can obtain a KeyStream either by calling the `createKeyStream()` method on a LevelUP object or by passing passing an options object to `createReadStream()` with `keys` set to `true` and `values` set to `false`.\n\n```js\ndb.createKeyStream()\n  .on('data', function (data) {\n    console.log('key=', data)\n  })\n\n// same as:\ndb.createReadStream({ keys: true, values: false })\n  .on('data', function (data) {\n    console.log('key=', data)\n  })\n```\n\n--------------------------------------------------------\n<a name=\"createValueStream\"></a>\n### db.createValueStream([options])\n\nA **ValueStream** is a **ReadStream** where the `'data'` events are simply the values from the database so it can be used like a traditional stream rather than an object stream.\n\nYou can obtain a ValueStream either by calling the `createValueStream()` method on a LevelUP object or by passing passing an options object to `createReadStream()` with `values` set to `true` and `keys` set to `false`.\n\n```js\ndb.createValueStream()\n  .on('data', function (data) {\n    console.log('value=', data)\n  })\n\n// same as:\ndb.createReadStream({ keys: false, values: true })\n  .on('data', function (data) {\n    console.log('value=', data)\n  })\n```\n\n--------------------------------------------------------\n<a name=\"createWriteStream\"></a>\n### db.createWriteStream([options])\n\nA **WriteStream** can be obtained by calling the `createWriteStream()` method. The resulting stream is a complete Node.js-style [Writable Stream](http://nodejs.org/docs/latest/api/stream.html#stream_writable_stream) which accepts objects with `'key'` and `'value'` pairs on its `write()` method.\n\nThe WriteStream will buffer writes and submit them as a `batch()` operations where writes occur *within the same tick*.\n\n```js\nvar ws = db.createWriteStream()\n\nws.on('error', function (err) {\n  console.log('Oh my!', err)\n})\nws.on('close', function () {\n  console.log('Stream closed')\n})\n\nws.write({ key: 'name', value: 'Yuri Irsenovich Kim' })\nws.write({ key: 'dob', value: '16 February 1941' })\nws.write({ key: 'spouse', value: 'Kim Young-sook' })\nws.write({ key: 'occupation', value: 'Clown' })\nws.end()\n```\n\nThe standard `write()`, `end()`, `destroy()` and `destroySoon()` methods are implemented on the WriteStream. `'drain'`, `'error'`, `'close'` and `'pipe'` events are emitted.\n\nYou can specify encodings both for the whole stream and individual entries:\n\nTo set the encoding for the whole stream, provide an options object as the first parameter to `createWriteStream()` with `'keyEncoding'` and/or `'valueEncoding'`.\n\nTo set the encoding for an individual entry:\n\n```js\nwriteStream.write({\n    key           : new Buffer([1, 2, 3])\n  , value         : { some: 'json' }\n  , keyEncoding   : 'binary'\n  , valueEncoding : 'json'\n})\n```\n\n#### write({ type: 'put' })\n\nIf individual `write()` operations are performed with a `'type'` property of `'del'`, they will be passed on as `'del'` operations to the batch.\n\n```js\nvar ws = db.createWriteStream()\n\nws.on('error', function (err) {\n  console.log('Oh my!', err)\n})\nws.on('close', function () {\n  console.log('Stream closed')\n})\n\nws.write({ type: 'del', key: 'name' })\nws.write({ type: 'del', key: 'dob' })\nws.write({ type: 'put', key: 'spouse' })\nws.write({ type: 'del', key: 'occupation' })\nws.end()\n```\n\n#### db.createWriteStream({ type: 'del' })\n\nIf the *WriteStream* is created with a `'type'` option of `'del'`, all `write()` operations will be interpreted as `'del'`, unless explicitly specified as `'put'`.\n\n```js\nvar ws = db.createWriteStream({ type: 'del' })\n\nws.on('error', function (err) {\n  console.log('Oh my!', err)\n})\nws.on('close', function () {\n  console.log('Stream closed')\n})\n\nws.write({ key: 'name' })\nws.write({ key: 'dob' })\n// but it can be overridden\nws.write({ type: 'put', key: 'spouse', value: 'Ri Sol-ju' })\nws.write({ key: 'occupation' })\nws.end()\n```\n\n#### Pipes and Node Stream compatibility\n\nA ReadStream can be piped directly to a WriteStream, allowing for easy copying of an entire database. A simple `copy()` operation is included in LevelUP that performs exactly this on two open databases:\n\n```js\nfunction copy (srcdb, dstdb, callback) {\n  srcdb.createReadStream().pipe(dstdb.createWriteStream()).on('close', callback)\n}\n```\n\nThe ReadStream is also [fstream](https://github.com/isaacs/fstream)-compatible which means you should be able to pipe to and from fstreams. So you can serialize and deserialize an entire database to a directory where keys are filenames and values are their contents, or even into a *tar* file using [node-tar](https://github.com/isaacs/node-tar). See the [fstream functional test](https://github.com/rvagg/node-levelup/blob/master/test/functional/fstream-test.js) for an example. *(Note: I'm not really sure there's a great use-case for this but it's a fun example and it helps to harden the stream implementations.)*\n\nKeyStreams and ValueStreams can be treated like standard streams of raw data. If `'keyEncoding'` or `'valueEncoding'` is set to `'binary'` the `'data'` events will simply be standard Node `Buffer` objects straight out of the data store.\n\n\n--------------------------------------------------------\n<a name='approximateSize'></a>\n### db.db.approximateSize(start, end, callback)\n<code>approximateSize()</code> can used to get the approximate number of bytes of file system space used by the range `[start..end)`. The result may not include recently written data.\n\n```js\nvar db = require('level')('./huge.db')\n\ndb.db.approximateSize('a', 'c', function (err, size) {\n  if (err) return console.error('Ooops!', err)\n  console.log('Approximate size of range is %d', size)\n})\n```\n\n**Note:** `approximateSize()` is available via [LevelDOWN](https://github.com/rvagg/node-leveldown/), which by default is accessible as the `db` property of your LevelUP instance. This is a specific LevelDB operation and is not likely to be available where you replace LevelDOWN with an alternative back-end via the `'db'` option.\n\n\n--------------------------------------------------------\n<a name='getProperty'></a>\n### db.db.getProperty(property)\n<code>getProperty</code> can be used to get internal details from LevelDB. When issued with a valid property string, a readable string will be returned (this method is synchronous).\n\nCurrently, the only valid properties are:\n\n* <b><code>'leveldb.num-files-at-levelN'</code></b>: returns the number of files at level *N*, where N is an integer representing a valid level (e.g. \"0\").\n\n* <b><code>'leveldb.stats'</code></b>: returns a multi-line string describing statistics about LevelDB's internal operation.\n\n* <b><code>'leveldb.sstables'</code></b>: returns a multi-line string describing all of the *sstables* that make up contents of the current database.\n\n\n```js\nvar db = require('level')('./huge.db')\nconsole.log(db.db.getProperty('leveldb.num-files-at-level3'))\n// → '243'\n```\n\n**Note:** `getProperty()` is available via [LevelDOWN](https://github.com/rvagg/node-leveldown/), which by default is accessible as the `db` property of your LevelUP instance. This is a specific LevelDB operation and is not likely to be available where you replace LevelDOWN with an alternative back-end via the `'db'` option.\n\n\n--------------------------------------------------------\n<a name=\"destroy\"></a>\n### leveldown.destroy(location, callback)\n<code>destroy()</code> is used to completely remove an existing LevelDB database directory. You can use this function in place of a full directory *rm* if you want to be sure to only remove LevelDB-related files. If the directory only contains LevelDB files, the directory itself will be removed as well. If there are additional, non-LevelDB files in the directory, those files, and the directory, will be left alone.\n\nThe callback will be called when the destroy operation is complete, with a possible `error` argument.\n\n**Note:** `destroy()` is available via [LevelDOWN](https://github.com/rvagg/node-leveldown/) which you will have to install seperately, e.g.:\n\n```js\nrequire('leveldown').destroy('./huge.db', function (err) { console.log('done!') })\n```\n\n--------------------------------------------------------\n<a name=\"repair\"></a>\n### leveldown.repair(location, callback)\n<code>repair()</code> can be used to attempt a restoration of a damaged LevelDB store. From the LevelDB documentation:\n\n> If a DB cannot be opened, you may attempt to call this method to resurrect as much of the contents of the database as possible. Some data may be lost, so be careful when calling this function on a database that contains important information.\n\nYou will find information on the *repair* operation in the *LOG* file inside the store directory. \n\nA `repair()` can also be used to perform a compaction of the LevelDB log into table files.\n\nThe callback will be called when the repair operation is complete, with a possible `error` argument.\n\n**Note:** `repair()` is available via [LevelDOWN](https://github.com/rvagg/node-leveldown/) which you will have to install seperately, e.g.:\n\n```js\nrequire('leveldown').repair('./huge.db', function (err) { console.log('done!') })\n```\n\n--------------------------------------------------------\n\n<a name=\"events\"></a>\nEvents\n------\n\nLevelUP emits events when the callbacks to the corresponding methods are called.\n\n* `db.emit('put', key, value)` emitted when a new value is `'put'`\n* `db.emit('del', key)` emitted when a value is deleted\n* `db.emit('batch', ary)` emitted when a batch operation has executed\n* `db.emit('ready')` emitted when the database has opened (`'open'` is synonym)\n* `db.emit('closed')` emitted when the database has closed\n* `db.emit('opening')` emitted when the database is opening\n* `db.emit('closing')` emitted when the database is closing\n\nIf you do not pass a callback to an async function, and there is an error, LevelUP will `emit('error', err)` instead.\n\n<a name=\"json\"></a>\nJSON data\n---------\n\nYou specify `'json'` encoding for both keys and/or values, you can then supply JavaScript objects to LevelUP and receive them from all fetch operations, including ReadStreams. LevelUP will automatically *stringify* your objects and store them as *utf8* and parse the strings back into objects before passing them back to you.\n\n<a name=\"custom_encodings\"></a>\nCustom encodings\n----------------\n\nA custom encoding may be provided by passing in an object as an value for `keyEncoding` or `valueEncoding` (wherever accepted), it must have the following properties:\n\n```js\n{\n    encode : function (val) { ... }\n  , decode : function (val) { ... }\n  , buffer : boolean // encode returns a buffer and decode accepts a buffer\n  , type   : String  // name of this encoding type.\n}\n```\n\n<a name=\"extending\"></a>\nExtending LevelUP\n-----------------\n\nA list of <a href=\"https://github.com/rvagg/node-levelup/wiki/Modules\"><b>Node.js LevelDB modules and projects</b></a> can be found in the wiki.\n\nWhen attempting to extend the functionality of LevelUP, it is recommended that you consider using [level-hooks](https://github.com/dominictarr/level-hooks) and/or [level-sublevel](https://github.com/dominictarr/level-sublevel). **level-sublevel** is particularly helpful for keeping additional, extension-specific, data in a LevelDB store. It allows you to partition a LevelUP instance into multiple sub-instances that each correspond to discrete namespaced key ranges.\n\n<a name=\"multiproc\"></a>\nMulti-process access\n--------------------\n\nLevelDB is thread-safe but is **not** suitable for accessing with multiple processes. You should only ever have a LevelDB database open from a single Node.js process. Node.js clusters are made up of multiple processes so a LevelUP instance cannot be shared between them either.\n\nSee the <a href=\"https://github.com/rvagg/node-levelup/wiki/Modules\"><b>wiki</b></a> for some LevelUP extensions, including [multilevel](https://github.com/juliangruber/multilevel), that may help if you require a single data store to be shared across processes.\n\n<a name=\"support\"></a>\nGetting support\n---------------\n\nThere are multiple ways you can find help in using LevelDB in Node.js:\n\n * **IRC:** you'll find an active group of LevelUP users in the **##leveldb** channel on Freenode, including most of the contributors to this project.\n * **Mailing list:** there is an active [Node.js LevelDB](https://groups.google.com/forum/#!forum/node-levelup) Google Group.\n * **GitHub:** you're welcome to open an issue here on this GitHub repository if you have a question.\n\n<a name=\"contributing\"></a>\nContributing\n------------\n\nLevelUP is an **OPEN Open Source Project**. This means that:\n\n> Individuals making significant and valuable contributions are given commit-access to the project to contribute as they see fit. This project is more like an open wiki than a standard guarded open source project.\n\nSee the [CONTRIBUTING.md](https://github.com/rvagg/node-levelup/blob/master/CONTRIBUTING.md) file for more details.\n\n### Contributors\n\nLevelUP is only possible due to the excellent work of the following contributors:\n\n<table><tbody>\n<tr><th align=\"left\">Rod Vagg</th><td><a href=\"https://github.com/rvagg\">GitHub/rvagg</a></td><td><a href=\"http://twitter.com/rvagg\">Twitter/@rvagg</a></td></tr>\n<tr><th align=\"left\">John Chesley</th><td><a href=\"https://github.com/chesles/\">GitHub/chesles</a></td><td><a href=\"http://twitter.com/chesles\">Twitter/@chesles</a></td></tr>\n<tr><th align=\"left\">Jake Verbaten</th><td><a href=\"https://github.com/raynos\">GitHub/raynos</a></td><td><a href=\"http://twitter.com/raynos2\">Twitter/@raynos2</a></td></tr>\n<tr><th align=\"left\">Dominic Tarr</th><td><a href=\"https://github.com/dominictarr\">GitHub/dominictarr</a></td><td><a href=\"http://twitter.com/dominictarr\">Twitter/@dominictarr</a></td></tr>\n<tr><th align=\"left\">Max Ogden</th><td><a href=\"https://github.com/maxogden\">GitHub/maxogden</a></td><td><a href=\"http://twitter.com/maxogden\">Twitter/@maxogden</a></td></tr>\n<tr><th align=\"left\">Lars-Magnus Skog</th><td><a href=\"https://github.com/ralphtheninja\">GitHub/ralphtheninja</a></td><td><a href=\"http://twitter.com/ralphtheninja\">Twitter/@ralphtheninja</a></td></tr>\n<tr><th align=\"left\">David Björklund</th><td><a href=\"https://github.com/kesla\">GitHub/kesla</a></td><td><a href=\"http://twitter.com/david_bjorklund\">Twitter/@david_bjorklund</a></td></tr>\n<tr><th align=\"left\">Julian Gruber</th><td><a href=\"https://github.com/juliangruber\">GitHub/juliangruber</a></td><td><a href=\"http://twitter.com/juliangruber\">Twitter/@juliangruber</a></td></tr>\n<tr><th align=\"left\">Paolo Fragomeni</th><td><a href=\"https://github.com/hij1nx\">GitHub/hij1nx</a></td><td><a href=\"http://twitter.com/hij1nx\">Twitter/@hij1nx</a></td></tr>\n<tr><th align=\"left\">Anton Whalley</th><td><a href=\"https://github.com/No9\">GitHub/No9</a></td><td><a href=\"https://twitter.com/antonwhalley\">Twitter/@antonwhalley</a></td></tr>\n<tr><th align=\"left\">Matteo Collina</th><td><a href=\"https://github.com/mcollina\">GitHub/mcollina</a></td><td><a href=\"https://twitter.com/matteocollina\">Twitter/@matteocollina</a></td></tr>\n<tr><th align=\"left\">Pedro Teixeira</th><td><a href=\"https://github.com/pgte\">GitHub/pgte</a></td><td><a href=\"https://twitter.com/pgte\">Twitter/@pgte</a></td></tr>\n<tr><th align=\"left\">James Halliday</th><td><a href=\"https://github.com/substack\">GitHub/substack</a></td><td><a href=\"https://twitter.com/substack\">Twitter/@substack</a></td></tr>\n</tbody></table>\n\n### Windows\n\nA large portion of the Windows support comes from code by [Krzysztof Kowalczyk](http://blog.kowalczyk.info/) [@kjk](https://twitter.com/kjk), see his Windows LevelDB port [here](http://code.google.com/r/kkowalczyk-leveldb/). If you're using LevelUP on Windows, you should give him your thanks!\n\n\n<a name=\"license\"></a>\nLicense &amp; copyright\n-------------------\n\nCopyright (c) 2012-2014 LevelUP contributors (listed above).\n\nLevelUP is licensed under the MIT license. All rights not explicitly granted in the MIT license are reserved. See the included LICENSE.md file for more details.\n\n=======\n*LevelUP builds on the excellent work of the LevelDB and Snappy teams from Google and additional contributors. LevelDB and Snappy are both issued under the [New BSD Licence](http://opensource.org/licenses/BSD-3-Clause).*\n",
-  "readmeFilename": "README.md",
+  "gitHead": "fb742b01990139b44b1816de87a6e1b2de629627",
   "bugs": {
     "url": "https://github.com/rvagg/node-levelup/issues"
   },
   "_id": "levelup@0.19.0",
   "_shasum": "f6b60a168c86c2fe5d5953476cbe9786ccf0a3f7",
+  "_from": "levelup@>=0.19.0 <0.20.0",
+  "_npmVersion": "1.4.23",
+  "_npmUser": {
+    "name": "rvagg",
+    "email": "rod@vagg.org"
+  },
+  "maintainers": [
+    {
+      "name": "rvagg",
+      "email": "rod@vagg.org"
+    }
+  ],
+  "dist": {
+    "shasum": "f6b60a168c86c2fe5d5953476cbe9786ccf0a3f7",
+    "tarball": "http://registry.npmjs.org/levelup/-/levelup-0.19.0.tgz"
+  },
+  "directories": {},
   "_resolved": "https://registry.npmjs.org/levelup/-/levelup-0.19.0.tgz",
-  "_from": "levelup@>=0.19.0 <0.20.0"
+  "readme": "ERROR: No README data found!"
 }
 
-},{}],107:[function(_dereq_,module,exports){
+},{}],100:[function(_dereq_,module,exports){
 (function (Buffer){
 
 exports.compare = function (a, b) {
@@ -12810,12 +12029,31 @@ exports.filter = function (range, compare) {
   }
 }
 
-}).call(this,_dereq_(56).Buffer)
-},{"56":56}],108:[function(_dereq_,module,exports){
-arguments[4][105][0].apply(exports,arguments)
-},{"105":105}],109:[function(_dereq_,module,exports){
-var hooks = _dereq_(86)
-var ltgt = _dereq_(107)
+}).call(this,{"isBuffer":_dereq_(55)})
+},{"55":55}],101:[function(_dereq_,module,exports){
+module.exports = extend
+
+var hasOwnProperty = Object.prototype.hasOwnProperty;
+
+function extend() {
+    var target = {}
+
+    for (var i = 0; i < arguments.length; i++) {
+        var source = arguments[i]
+
+        for (var key in source) {
+            if (hasOwnProperty.call(source, key)) {
+                target[key] = source[key]
+            }
+        }
+    }
+
+    return target
+}
+
+},{}],102:[function(_dereq_,module,exports){
+var hooks = _dereq_(79)
+var ltgt = _dereq_(100)
 
 function isFunction (f) {
   return 'function' === typeof f
@@ -13025,11 +12263,11 @@ module.exports = function (db, precodec, codec, compare) {
 
 }
 
-},{"107":107,"86":86}],110:[function(_dereq_,module,exports){
+},{"100":100,"79":79}],103:[function(_dereq_,module,exports){
 module.exports={
   "name": "level-sublevel",
   "description": "partition levelup databases",
-  "version": "6.5.1",
+  "version": "6.5.2",
   "homepage": "https://github.com/dominictarr/level-sublevel",
   "repository": {
     "type": "git",
@@ -13081,13 +12319,13 @@ module.exports={
       "android-browser/4.2..latest"
     ]
   },
-  "gitHead": "2e0b099c01a724f8eb8750b4db53e72f3e7d1829",
+  "gitHead": "389e1329a5492daf9e4e53ef86f92779d2a56394",
   "bugs": {
     "url": "https://github.com/dominictarr/level-sublevel/issues"
   },
-  "_id": "level-sublevel@6.5.1",
-  "_shasum": "0f4fa2f5aa2a89a37a4161021e3f816b77d41858",
-  "_from": "level-sublevel@>=6.5.0 <7.0.0",
+  "_id": "level-sublevel@6.5.2",
+  "_shasum": "162df326861cecf29dc97387425e6269a972a89e",
+  "_from": "level-sublevel@6.5.2",
   "_npmVersion": "3.3.1",
   "_nodeVersion": "2.3.1",
   "_npmUser": {
@@ -13101,16 +12339,17 @@ module.exports={
     }
   ],
   "dist": {
-    "shasum": "0f4fa2f5aa2a89a37a4161021e3f816b77d41858",
-    "tarball": "http://127.0.0.1:5080/tarballs/level-sublevel/6.5.1.tgz"
+    "shasum": "162df326861cecf29dc97387425e6269a972a89e",
+    "tarball": "http://registry.npmjs.org/level-sublevel/-/level-sublevel-6.5.2.tgz"
   },
-  "_resolved": "http://127.0.0.1:5080/tarballs/level-sublevel/6.5.1.tgz",
+  "directories": {},
+  "_resolved": "https://registry.npmjs.org/level-sublevel/-/level-sublevel-6.5.2.tgz",
   "readme": "ERROR: No README data found!"
 }
 
-},{}],111:[function(_dereq_,module,exports){
+},{}],104:[function(_dereq_,module,exports){
 (function (Buffer){
-var ltgt = _dereq_(107)
+var ltgt = _dereq_(100)
 
 //compare two array items
 function isArrayLike (a) {
@@ -13126,7 +12365,6 @@ function has(o, k) {
 }
 
 function compare (a, b) {
-
   if(isArrayLike(a) && isArrayLike(b)) {
     var l = Math.min(a.length, b.length)
     for(var i = 0; i < l; i++) {
@@ -13175,7 +12413,7 @@ exports = module.exports = function (range, key, _compare) {
   //then check the last item starts with
   if(isArrayLike(range)) return prefix(range, key)
 
-  return ltgt.contains(range, key, compare)
+  return ltgt.contains(range, key, _compare)
 }
 
 function addPrefix(prefix, range) {
@@ -13193,13 +12431,13 @@ exports.compare = compare
 exports.prefix = prefix
 exports.addPrefix = addPrefix
 
-}).call(this,_dereq_(56).Buffer)
-},{"107":107,"56":56}],112:[function(_dereq_,module,exports){
+}).call(this,{"isBuffer":_dereq_(55)})
+},{"100":100,"55":55}],105:[function(_dereq_,module,exports){
 (function (process){
-var EventEmitter = _dereq_(60).EventEmitter
-var addpre = _dereq_(111).addPrefix
+var EventEmitter = _dereq_(54).EventEmitter
+var addpre = _dereq_(104).addPrefix
 
-var errors = _dereq_(90)
+var errors = _dereq_(83)
 
 function isFunction (f) {
   return 'function' === typeof f
@@ -13213,7 +12451,7 @@ function isObject (o) {
   return o && 'object' === typeof o
 }
 
-var version = _dereq_(110).version
+var version = _dereq_(103).version
 
 var sublevel = module.exports = function (nut, prefix, createStream, options) {
   var emitter = new EventEmitter()
@@ -13371,16 +12609,16 @@ var sublevel = module.exports = function (nut, prefix, createStream, options) {
   return emitter
 }
 
-}).call(this,_dereq_(62))
-},{"110":110,"111":111,"60":60,"62":62,"90":90}],113:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57))
+},{"103":103,"104":104,"54":54,"57":57,"83":83}],106:[function(_dereq_,module,exports){
 /* Copyright (c) 2012-2015 LevelUP contributors
  * See list at <https://github.com/level/levelup#contributing>
  * MIT License
  * <https://github.com/level/levelup/blob/master/LICENSE.md>
  */
 
-var util          = _dereq_(115)
-  , WriteError    = _dereq_(122).WriteError
+var util          = _dereq_(108)
+  , WriteError    = _dereq_(115).WriteError
 
   , getOptions    = util.getOptions
   , dispatchError = util.dispatchError
@@ -13453,7 +12691,7 @@ Batch.prototype.write = function (callback) {
 
 module.exports = Batch
 
-},{"115":115,"122":122}],114:[function(_dereq_,module,exports){
+},{"108":108,"115":115}],107:[function(_dereq_,module,exports){
 (function (process){
 /* Copyright (c) 2012-2015 LevelUP contributors
  * See list at <https://github.com/level/levelup#contributing>
@@ -13461,15 +12699,15 @@ module.exports = Batch
  * <https://github.com/level/levelup/blob/master/LICENSE.md>
  */
 
-var EventEmitter        = _dereq_(60).EventEmitter
-  , inherits            = _dereq_(79).inherits
-  , deprecate           = _dereq_(79).deprecate
-  , extend              = _dereq_(137)
-  , prr                 = _dereq_(136)
-  , DeferredLevelDOWN   = _dereq_(116)
-  , IteratorStream      = _dereq_(126)
+var EventEmitter        = _dereq_(54).EventEmitter
+  , inherits            = _dereq_(74).inherits
+  , deprecate           = _dereq_(74).deprecate
+  , extend              = _dereq_(130)
+  , prr                 = _dereq_(129)
+  , DeferredLevelDOWN   = _dereq_(109)
+  , IteratorStream      = _dereq_(119)
 
-  , errors              = _dereq_(122)
+  , errors              = _dereq_(115)
   , WriteError          = errors.WriteError
   , ReadError           = errors.ReadError
   , NotFoundError       = errors.NotFoundError
@@ -13477,9 +12715,9 @@ var EventEmitter        = _dereq_(60).EventEmitter
   , EncodingError       = errors.EncodingError
   , InitializationError = errors.InitializationError
 
-  , util                = _dereq_(115)
-  , Batch               = _dereq_(113)
-  , Codec               = _dereq_(120)
+  , util                = _dereq_(108)
+  , Batch               = _dereq_(106)
+  , Codec               = _dereq_(113)
 
   , getOptions          = util.getOptions
   , defaultOptions      = util.defaultOptions
@@ -13844,7 +13082,7 @@ function utilStatic (name) {
 }
 
 module.exports         = LevelUP
-module.exports.errors  = _dereq_(122)
+module.exports.errors  = _dereq_(115)
 module.exports.destroy = deprecate(
     utilStatic('destroy')
   , 'levelup.destroy() is deprecated. Use leveldown.destroy() instead'
@@ -13855,17 +13093,17 @@ module.exports.repair  = deprecate(
 )
 
 
-}).call(this,_dereq_(62))
-},{"113":113,"115":115,"116":116,"120":120,"122":122,"126":126,"136":136,"137":137,"60":60,"62":62,"79":79}],115:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57))
+},{"106":106,"108":108,"109":109,"113":113,"115":115,"119":119,"129":129,"130":130,"54":54,"57":57,"74":74}],108:[function(_dereq_,module,exports){
 /* Copyright (c) 2012-2015 LevelUP contributors
  * See list at <https://github.com/level/levelup#contributing>
  * MIT License
  * <https://github.com/level/levelup/blob/master/LICENSE.md>
  */
 
-var extend         = _dereq_(137)
-  , LevelUPError   = _dereq_(122).LevelUPError
-  , format         = _dereq_(79).format
+var extend         = _dereq_(130)
+  , LevelUPError   = _dereq_(115).LevelUPError
+  , format         = _dereq_(74).format
   , defaultOptions = {
         createIfMissing : true
       , errorIfExists   : false
@@ -13888,16 +13126,16 @@ function getLevelDOWN () {
   if (leveldown)
     return leveldown
 
-  var requiredVersion  = _dereq_(138).devDependencies.leveldown
+  var requiredVersion  = _dereq_(131).devDependencies.leveldown
     , leveldownVersion
 
   try {
-    leveldownVersion = _dereq_(55).version
+    leveldownVersion = _dereq_(49).version
   } catch (e) {
     throw requireError(e)
   }
 
-  if (!_dereq_(55).satisfies(leveldownVersion, requiredVersion)) {
+  if (!_dereq_(49).satisfies(leveldownVersion, requiredVersion)) {
     throw new LevelUPError(
         'Installed version of LevelDOWN ('
       + leveldownVersion
@@ -13908,7 +13146,7 @@ function getLevelDOWN () {
   }
 
   try {
-    return leveldown = _dereq_(55)
+    return leveldown = _dereq_(49)
   } catch (e) {
     throw requireError(e)
   }
@@ -13935,11 +13173,11 @@ module.exports = {
   , isDefined       : isDefined
 }
 
-},{"122":122,"137":137,"138":138,"55":55,"79":79}],116:[function(_dereq_,module,exports){
-(function (process,Buffer){
-var util              = _dereq_(79)
-  , AbstractLevelDOWN = _dereq_(119).AbstractLevelDOWN
-  , AbstractIterator  = _dereq_(119).AbstractIterator
+},{"115":115,"130":130,"131":131,"49":49,"74":74}],109:[function(_dereq_,module,exports){
+(function (Buffer,process){
+var util              = _dereq_(74)
+  , AbstractLevelDOWN = _dereq_(112).AbstractLevelDOWN
+  , AbstractIterator  = _dereq_(112).AbstractIterator
 
 function DeferredLevelDOWN (location) {
   AbstractLevelDOWN.call(this, typeof location == 'string' ? location : '') // optional location, who cares?
@@ -14021,8 +13259,8 @@ Iterator.prototype._operation = function (method, args) {
 module.exports = DeferredLevelDOWN
 
 
-}).call(this,_dereq_(62),_dereq_(56).Buffer)
-},{"119":119,"56":56,"62":62,"79":79}],117:[function(_dereq_,module,exports){
+}).call(this,{"isBuffer":_dereq_(55)},_dereq_(57))
+},{"112":112,"55":55,"57":57,"74":74}],110:[function(_dereq_,module,exports){
 (function (process){
 /* Copyright (c) 2013 Rod Vagg, MIT License */
 
@@ -14104,8 +13342,8 @@ AbstractChainedBatch.prototype.write = function (options, callback) {
 }
 
 module.exports = AbstractChainedBatch
-}).call(this,_dereq_(62))
-},{"62":62}],118:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57))
+},{"57":57}],111:[function(_dereq_,module,exports){
 (function (process){
 /* Copyright (c) 2013 Rod Vagg, MIT License */
 
@@ -14157,14 +13395,14 @@ AbstractIterator.prototype.end = function (callback) {
 
 module.exports = AbstractIterator
 
-}).call(this,_dereq_(62))
-},{"62":62}],119:[function(_dereq_,module,exports){
-(function (process,Buffer){
+}).call(this,_dereq_(57))
+},{"57":57}],112:[function(_dereq_,module,exports){
+(function (Buffer,process){
 /* Copyright (c) 2013 Rod Vagg, MIT License */
 
-var xtend                = _dereq_(137)
-  , AbstractIterator     = _dereq_(118)
-  , AbstractChainedBatch = _dereq_(117)
+var xtend                = _dereq_(130)
+  , AbstractIterator     = _dereq_(111)
+  , AbstractChainedBatch = _dereq_(110)
 
 function AbstractLevelDOWN (location) {
   if (!arguments.length || location === undefined)
@@ -14408,9 +13646,9 @@ module.exports.AbstractLevelDOWN    = AbstractLevelDOWN
 module.exports.AbstractIterator     = AbstractIterator
 module.exports.AbstractChainedBatch = AbstractChainedBatch
 
-}).call(this,_dereq_(62),_dereq_(56).Buffer)
-},{"117":117,"118":118,"137":137,"56":56,"62":62}],120:[function(_dereq_,module,exports){
-var encodings = _dereq_(121);
+}).call(this,{"isBuffer":_dereq_(55)},_dereq_(57))
+},{"110":110,"111":111,"130":130,"55":55,"57":57}],113:[function(_dereq_,module,exports){
+var encodings = _dereq_(114);
 
 module.exports = Codec;
 
@@ -14516,7 +13754,7 @@ Codec.prototype.valueAsBuffer = function(opts){
 };
 
 
-},{"121":121}],121:[function(_dereq_,module,exports){
+},{"114":114}],114:[function(_dereq_,module,exports){
 (function (Buffer){
 
 exports.utf8 = exports['utf-8'] = {
@@ -14595,15 +13833,15 @@ function isBinary(data){
 }
 
 
-}).call(this,_dereq_(56).Buffer)
-},{"56":56}],122:[function(_dereq_,module,exports){
+}).call(this,_dereq_(50).Buffer)
+},{"50":50}],115:[function(_dereq_,module,exports){
 /* Copyright (c) 2012-2015 LevelUP contributors
  * See list at <https://github.com/rvagg/node-levelup#contributing>
  * MIT License
  * <https://github.com/rvagg/node-levelup/blob/master/LICENSE.md>
  */
 
-var createError   = _dereq_(124).create
+var createError   = _dereq_(117).create
   , LevelUPError  = createError('LevelUPError')
   , NotFoundError = createError('NotFoundError', LevelUPError)
 
@@ -14620,17 +13858,17 @@ module.exports = {
   , EncodingError       : createError('EncodingError', LevelUPError)
 }
 
-},{"124":124}],123:[function(_dereq_,module,exports){
-arguments[4][93][0].apply(exports,arguments)
-},{"125":125,"93":93}],124:[function(_dereq_,module,exports){
-arguments[4][94][0].apply(exports,arguments)
-},{"123":123,"94":94}],125:[function(_dereq_,module,exports){
-arguments[4][95][0].apply(exports,arguments)
-},{"95":95}],126:[function(_dereq_,module,exports){
-var inherits = _dereq_(84);
-var Readable = _dereq_(135).Readable;
-var extend = _dereq_(137);
-var EncodingError = _dereq_(122).EncodingError;
+},{"117":117}],116:[function(_dereq_,module,exports){
+arguments[4][86][0].apply(exports,arguments)
+},{"118":118,"86":86}],117:[function(_dereq_,module,exports){
+arguments[4][87][0].apply(exports,arguments)
+},{"116":116,"87":87}],118:[function(_dereq_,module,exports){
+arguments[4][88][0].apply(exports,arguments)
+},{"88":88}],119:[function(_dereq_,module,exports){
+var inherits = _dereq_(76);
+var Readable = _dereq_(128).Readable;
+var extend = _dereq_(130);
+var EncodingError = _dereq_(115).EncodingError;
 
 module.exports = ReadStream;
 inherits(ReadStream, Readable);
@@ -14684,11 +13922,11 @@ ReadStream.prototype._cleanup = function(){
 };
 
 
-},{"122":122,"135":135,"137":137,"84":84}],127:[function(_dereq_,module,exports){
-arguments[4][96][0].apply(exports,arguments)
-},{"129":129,"131":131,"132":132,"62":62,"84":84,"96":96}],128:[function(_dereq_,module,exports){
-arguments[4][97][0].apply(exports,arguments)
-},{"130":130,"132":132,"84":84,"97":97}],129:[function(_dereq_,module,exports){
+},{"115":115,"128":128,"130":130,"76":76}],120:[function(_dereq_,module,exports){
+arguments[4][89][0].apply(exports,arguments)
+},{"122":122,"124":124,"125":125,"57":57,"76":76,"89":89}],121:[function(_dereq_,module,exports){
+arguments[4][90][0].apply(exports,arguments)
+},{"123":123,"125":125,"76":76,"90":90}],122:[function(_dereq_,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -14714,17 +13952,17 @@ arguments[4][97][0].apply(exports,arguments)
 module.exports = Readable;
 
 /*<replacement>*/
-var isArray = _dereq_(133);
+var isArray = _dereq_(126);
 /*</replacement>*/
 
 
 /*<replacement>*/
-var Buffer = _dereq_(56).Buffer;
+var Buffer = _dereq_(50).Buffer;
 /*</replacement>*/
 
 Readable.ReadableState = ReadableState;
 
-var EE = _dereq_(60).EventEmitter;
+var EE = _dereq_(54).EventEmitter;
 
 /*<replacement>*/
 if (!EE.listenerCount) EE.listenerCount = function(emitter, type) {
@@ -14732,18 +13970,18 @@ if (!EE.listenerCount) EE.listenerCount = function(emitter, type) {
 };
 /*</replacement>*/
 
-var Stream = _dereq_(76);
+var Stream = _dereq_(71);
 
 /*<replacement>*/
-var util = _dereq_(132);
-util.inherits = _dereq_(84);
+var util = _dereq_(125);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
 var StringDecoder;
 
 
 /*<replacement>*/
-var debug = _dereq_(55);
+var debug = _dereq_(49);
 if (debug && debug.debuglog) {
   debug = debug.debuglog('stream');
 } else {
@@ -14755,7 +13993,7 @@ if (debug && debug.debuglog) {
 util.inherits(Readable, Stream);
 
 function ReadableState(options, stream) {
-  var Duplex = _dereq_(127);
+  var Duplex = _dereq_(120);
 
   options = options || {};
 
@@ -14816,14 +14054,14 @@ function ReadableState(options, stream) {
   this.encoding = null;
   if (options.encoding) {
     if (!StringDecoder)
-      StringDecoder = _dereq_(134).StringDecoder;
+      StringDecoder = _dereq_(127).StringDecoder;
     this.decoder = new StringDecoder(options.encoding);
     this.encoding = options.encoding;
   }
 }
 
 function Readable(options) {
-  var Duplex = _dereq_(127);
+  var Duplex = _dereq_(120);
 
   if (!(this instanceof Readable))
     return new Readable(options);
@@ -14926,7 +14164,7 @@ function needMoreData(state) {
 // backwards compatibility.
 Readable.prototype.setEncoding = function(enc) {
   if (!StringDecoder)
-    StringDecoder = _dereq_(134).StringDecoder;
+    StringDecoder = _dereq_(127).StringDecoder;
   this._readableState.decoder = new StringDecoder(enc);
   this._readableState.encoding = enc;
   return this;
@@ -15642,8 +14880,8 @@ function indexOf (xs, x) {
   return -1;
 }
 
-}).call(this,_dereq_(62))
-},{"127":127,"132":132,"133":133,"134":134,"55":55,"56":56,"60":60,"62":62,"76":76,"84":84}],130:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57))
+},{"120":120,"125":125,"126":126,"127":127,"49":49,"50":50,"54":54,"57":57,"71":71,"76":76}],123:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -15710,11 +14948,11 @@ function indexOf (xs, x) {
 
 module.exports = Transform;
 
-var Duplex = _dereq_(127);
+var Duplex = _dereq_(120);
 
 /*<replacement>*/
-var util = _dereq_(132);
-util.inherits = _dereq_(84);
+var util = _dereq_(125);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
 util.inherits(Transform, Duplex);
@@ -15854,7 +15092,7 @@ function done(stream, er) {
   return stream.push(null);
 }
 
-},{"127":127,"132":132,"84":84}],131:[function(_dereq_,module,exports){
+},{"120":120,"125":125,"76":76}],124:[function(_dereq_,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -15884,18 +15122,18 @@ function done(stream, er) {
 module.exports = Writable;
 
 /*<replacement>*/
-var Buffer = _dereq_(56).Buffer;
+var Buffer = _dereq_(50).Buffer;
 /*</replacement>*/
 
 Writable.WritableState = WritableState;
 
 
 /*<replacement>*/
-var util = _dereq_(132);
-util.inherits = _dereq_(84);
+var util = _dereq_(125);
+util.inherits = _dereq_(76);
 /*</replacement>*/
 
-var Stream = _dereq_(76);
+var Stream = _dereq_(71);
 
 util.inherits(Writable, Stream);
 
@@ -15906,7 +15144,7 @@ function WriteReq(chunk, encoding, cb) {
 }
 
 function WritableState(options, stream) {
-  var Duplex = _dereq_(127);
+  var Duplex = _dereq_(120);
 
   options = options || {};
 
@@ -15994,7 +15232,7 @@ function WritableState(options, stream) {
 }
 
 function Writable(options) {
-  var Duplex = _dereq_(127);
+  var Duplex = _dereq_(120);
 
   // Writable ctor is applied to Duplexes, though they're not
   // instanceof Writable, they're instanceof Readable.
@@ -16334,27 +15572,27 @@ function endWritable(stream, state, cb) {
   state.ended = true;
 }
 
-}).call(this,_dereq_(62))
-},{"127":127,"132":132,"56":56,"62":62,"76":76,"84":84}],132:[function(_dereq_,module,exports){
-arguments[4][69][0].apply(exports,arguments)
-},{"56":56,"69":69}],133:[function(_dereq_,module,exports){
-arguments[4][61][0].apply(exports,arguments)
-},{"61":61}],134:[function(_dereq_,module,exports){
-arguments[4][77][0].apply(exports,arguments)
-},{"56":56,"77":77}],135:[function(_dereq_,module,exports){
-exports = module.exports = _dereq_(129);
-exports.Stream = _dereq_(76);
+}).call(this,_dereq_(57))
+},{"120":120,"125":125,"50":50,"57":57,"71":71,"76":76}],125:[function(_dereq_,module,exports){
+arguments[4][94][0].apply(exports,arguments)
+},{"55":55,"94":94}],126:[function(_dereq_,module,exports){
+arguments[4][56][0].apply(exports,arguments)
+},{"56":56}],127:[function(_dereq_,module,exports){
+arguments[4][72][0].apply(exports,arguments)
+},{"50":50,"72":72}],128:[function(_dereq_,module,exports){
+exports = module.exports = _dereq_(122);
+exports.Stream = _dereq_(71);
 exports.Readable = exports;
-exports.Writable = _dereq_(131);
-exports.Duplex = _dereq_(127);
-exports.Transform = _dereq_(130);
-exports.PassThrough = _dereq_(128);
+exports.Writable = _dereq_(124);
+exports.Duplex = _dereq_(120);
+exports.Transform = _dereq_(123);
+exports.PassThrough = _dereq_(121);
 
-},{"127":127,"128":128,"129":129,"130":130,"131":131,"76":76}],136:[function(_dereq_,module,exports){
-arguments[4][95][0].apply(exports,arguments)
-},{"95":95}],137:[function(_dereq_,module,exports){
-arguments[4][105][0].apply(exports,arguments)
-},{"105":105}],138:[function(_dereq_,module,exports){
+},{"120":120,"121":121,"122":122,"123":123,"124":124,"71":71}],129:[function(_dereq_,module,exports){
+arguments[4][88][0].apply(exports,arguments)
+},{"88":88}],130:[function(_dereq_,module,exports){
+arguments[4][101][0].apply(exports,arguments)
+},{"101":101}],131:[function(_dereq_,module,exports){
 module.exports={
   "name": "levelup",
   "description": "Fast & simple storage - a Node.js-style LevelDB wrapper",
@@ -16433,7 +15671,7 @@ module.exports={
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/level/levelup.git"
+    "url": "https://github.com/level/levelup.git"
   },
   "homepage": "https://github.com/level/levelup",
   "keywords": [
@@ -16483,7 +15721,7 @@ module.exports={
   },
   "_id": "levelup@1.2.1",
   "_shasum": "13b537deb4a7536c3aa6fbe008a1af4a0350dbd5",
-  "_from": "levelup@>=1.2.1 <2.0.0",
+  "_from": "levelup@1.2.1",
   "_npmVersion": "2.11.0",
   "_nodeVersion": "2.2.1",
   "_npmUser": {
@@ -16509,13 +15747,12 @@ module.exports={
     "tarball": "http://registry.npmjs.org/levelup/-/levelup-1.2.1.tgz"
   },
   "directories": {},
-  "_resolved": "https://registry.npmjs.org/levelup/-/levelup-1.2.1.tgz",
-  "readme": "ERROR: No README data found!"
+  "_resolved": "https://registry.npmjs.org/levelup/-/levelup-1.2.1.tgz"
 }
 
-},{}],139:[function(_dereq_,module,exports){
+},{}],132:[function(_dereq_,module,exports){
 'use strict';
-var immediate = _dereq_(140);
+var immediate = _dereq_(133);
 
 /* istanbul ignore next */
 function INTERNAL() {}
@@ -16525,7 +15762,6 @@ var handlers = {};
 var REJECTED = ['REJECTED'];
 var FULFILLED = ['FULFILLED'];
 var PENDING = ['PENDING'];
-var UNHANDLED;
 
 module.exports = exports = Promise;
 
@@ -16769,7 +16005,7 @@ function race(iterable) {
   }
 }
 
-},{"140":140}],140:[function(_dereq_,module,exports){
+},{"133":133}],133:[function(_dereq_,module,exports){
 (function (global){
 'use strict';
 var Mutation = global.MutationObserver || global.WebKitMutationObserver;
@@ -16842,14 +16078,14 @@ function immediate(task) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],141:[function(_dereq_,module,exports){
+},{}],134:[function(_dereq_,module,exports){
 (function (process,global,Buffer){
-var inherits          = _dereq_(84)
-  , AbstractLevelDOWN = _dereq_(145).AbstractLevelDOWN
-  , AbstractIterator  = _dereq_(145).AbstractIterator
-  , ltgt              = _dereq_(149)
+var inherits          = _dereq_(76)
+  , AbstractLevelDOWN = _dereq_(138).AbstractLevelDOWN
+  , AbstractIterator  = _dereq_(138).AbstractIterator
+  , ltgt              = _dereq_(142)
   , setImmediate      = global.setImmediate || process.nextTick
-  , createRBT = _dereq_(148)
+  , createRBT = _dereq_(141)
   , globalStore       = {}
 
 function toKey (key) {
@@ -16857,19 +16093,19 @@ function toKey (key) {
 }
 
 function gt(value) {
-  return value > this._end
+  return ltgt.compare(value, this._end) > 0
 }
 
 function gte(value) {
-  return value >= this._end
+  return ltgt.compare(value, this._end) >= 0
 }
 
 function lt(value) {
-  return value < this._end
+  return ltgt.compare(value, this._end) < 0
 }
 
 function lte(value) {
-  return value <= this._end
+  return ltgt.compare(value, this._end) <= 0
 }
 
 
@@ -16974,6 +16210,16 @@ function MemDOWN (location) {
   this._store[this._location] = this._store[this._location] || createRBT()
 }
 
+MemDOWN.clearGlobalStore = function (strict) {
+  if (strict) {
+    Object.keys(globalStore).forEach(function (key) {
+      delete globalStore[key];
+    })
+  } else {
+    globalStore = {}
+  }
+}
+
 inherits(MemDOWN, AbstractLevelDOWN)
 
 MemDOWN.prototype._open = function (options, callback) {
@@ -16982,6 +16228,7 @@ MemDOWN.prototype._open = function (options, callback) {
 }
 
 MemDOWN.prototype._put = function (key, value, options, callback) {
+  if (typeof value === 'undefined' || value === null) value = ''
   this._store[this._location] = this._store[this._location].remove(key).insert(key, value)
   setImmediate(callback)
 }
@@ -17066,18 +16313,18 @@ MemDOWN.destroy = function (name, callback) {
 
 module.exports = MemDOWN
 
-}).call(this,_dereq_(62),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},_dereq_(56).Buffer)
-},{"145":145,"148":148,"149":149,"56":56,"62":62,"84":84}],142:[function(_dereq_,module,exports){
-arguments[4][117][0].apply(exports,arguments)
-},{"117":117,"62":62}],143:[function(_dereq_,module,exports){
-arguments[4][118][0].apply(exports,arguments)
-},{"118":118,"62":62}],144:[function(_dereq_,module,exports){
-(function (process,Buffer){
+}).call(this,_dereq_(57),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},_dereq_(50).Buffer)
+},{"138":138,"141":141,"142":142,"50":50,"57":57,"76":76}],135:[function(_dereq_,module,exports){
+arguments[4][110][0].apply(exports,arguments)
+},{"110":110,"57":57}],136:[function(_dereq_,module,exports){
+arguments[4][111][0].apply(exports,arguments)
+},{"111":111,"57":57}],137:[function(_dereq_,module,exports){
+(function (Buffer,process){
 /* Copyright (c) 2013 Rod Vagg, MIT License */
 
-var xtend                = _dereq_(147)
-  , AbstractIterator     = _dereq_(143)
-  , AbstractChainedBatch = _dereq_(142)
+var xtend                = _dereq_(140)
+  , AbstractIterator     = _dereq_(136)
+  , AbstractChainedBatch = _dereq_(135)
 
 function AbstractLevelDOWN (location) {
   if (!arguments.length || location === undefined)
@@ -17346,15 +16593,15 @@ AbstractLevelDOWN.prototype._checkKey = function (obj, type) {
 
 module.exports = AbstractLevelDOWN
 
-}).call(this,_dereq_(62),_dereq_(56).Buffer)
-},{"142":142,"143":143,"147":147,"56":56,"62":62}],145:[function(_dereq_,module,exports){
-exports.AbstractLevelDOWN    = _dereq_(144)
-exports.AbstractIterator     = _dereq_(143)
-exports.AbstractChainedBatch = _dereq_(142)
-exports.isLevelDOWN          = _dereq_(146)
+}).call(this,{"isBuffer":_dereq_(55)},_dereq_(57))
+},{"135":135,"136":136,"140":140,"55":55,"57":57}],138:[function(_dereq_,module,exports){
+exports.AbstractLevelDOWN    = _dereq_(137)
+exports.AbstractIterator     = _dereq_(136)
+exports.AbstractChainedBatch = _dereq_(135)
+exports.isLevelDOWN          = _dereq_(139)
 
-},{"142":142,"143":143,"144":144,"146":146}],146:[function(_dereq_,module,exports){
-var AbstractLevelDOWN = _dereq_(144)
+},{"135":135,"136":136,"137":137,"139":139}],139:[function(_dereq_,module,exports){
+var AbstractLevelDOWN = _dereq_(137)
 
 function isLevelDOWN (db) {
   if (!db || typeof db !== 'object')
@@ -17369,9 +16616,9 @@ function isLevelDOWN (db) {
 
 module.exports = isLevelDOWN
 
-},{"144":144}],147:[function(_dereq_,module,exports){
-arguments[4][105][0].apply(exports,arguments)
-},{"105":105}],148:[function(_dereq_,module,exports){
+},{"137":137}],140:[function(_dereq_,module,exports){
+arguments[4][101][0].apply(exports,arguments)
+},{"101":101}],141:[function(_dereq_,module,exports){
 "use strict"
 
 module.exports = createRBTree
@@ -18368,7 +17615,7 @@ function defaultCompare(a, b) {
 function createRBTree(compare) {
   return new RedBlackTree(compare || defaultCompare, null)
 }
-},{}],149:[function(_dereq_,module,exports){
+},{}],142:[function(_dereq_,module,exports){
 (function (Buffer){
 
 exports.compare = function (a, b) {
@@ -18466,8 +17713,8 @@ exports.filter = function (range, compare) {
   }
 }
 
-}).call(this,_dereq_(56).Buffer)
-},{"56":56}],150:[function(_dereq_,module,exports){
+}).call(this,{"isBuffer":_dereq_(55)})
+},{"55":55}],143:[function(_dereq_,module,exports){
 'use strict';
 exports.Map = LazyMap; // TODO: use ES6 map
 exports.Set = LazySet; // TODO: use ES6 set
@@ -18538,10 +17785,7 @@ LazySet.prototype["delete"] = function (key) {
   return this.store["delete"](key);
 };
 
-},{}],151:[function(_dereq_,module,exports){
-/*jshint bitwise:false*/
-/*global unescape*/
-
+},{}],144:[function(_dereq_,module,exports){
 (function (factory) {
     if (typeof exports === 'object') {
         // Node/CommonJS
@@ -18552,6 +17796,7 @@ LazySet.prototype["delete"] = function (key) {
     } else {
         // Browser globals (with support for web workers)
         var glob;
+
         try {
             glob = window;
         } catch (e) {
@@ -18563,8 +17808,6 @@ LazySet.prototype["delete"] = function (key) {
 }(function (undefined) {
 
     'use strict';
-
-    ////////////////////////////////////////////////////////////////////////////
 
     /*
      * Fastest md5 implementation around (JKM md5)
@@ -18582,29 +17825,31 @@ LazySet.prototype["delete"] = function (key) {
     var add32 = function (a, b) {
         return (a + b) & 0xFFFFFFFF;
     },
+        hex_chr = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
 
-    cmn = function (q, a, b, x, s, t) {
+
+    function cmn(q, a, b, x, s, t) {
         a = add32(add32(a, q), add32(x, t));
         return add32((a << s) | (a >>> (32 - s)), b);
-    },
+    }
 
-    ff = function (a, b, c, d, x, s, t) {
+    function ff(a, b, c, d, x, s, t) {
         return cmn((b & c) | ((~b) & d), a, b, x, s, t);
-    },
+    }
 
-    gg = function (a, b, c, d, x, s, t) {
+    function gg(a, b, c, d, x, s, t) {
         return cmn((b & d) | (c & (~d)), a, b, x, s, t);
-    },
+    }
 
-    hh = function (a, b, c, d, x, s, t) {
+    function hh(a, b, c, d, x, s, t) {
         return cmn(b ^ c ^ d, a, b, x, s, t);
-    },
+    }
 
-    ii = function (a, b, c, d, x, s, t) {
+    function ii(a, b, c, d, x, s, t) {
         return cmn(c ^ (b | (~d)), a, b, x, s, t);
-    },
+    }
 
-    md5cycle = function (x, k) {
+    function md5cycle(x, k) {
         var a = x[0],
             b = x[1],
             c = x[2],
@@ -18682,24 +17927,9 @@ LazySet.prototype["delete"] = function (key) {
         x[1] = add32(b, x[1]);
         x[2] = add32(c, x[2]);
         x[3] = add32(d, x[3]);
-    },
+    }
 
-    /* there needs to be support for Unicode here,
-       * unless we pretend that we can redefine the MD-5
-       * algorithm for multi-byte characters (perhaps
-       * by adding every four 16-bit characters and
-       * shortening the sum to 32 bits). Otherwise
-       * I suggest performing MD-5 as if every character
-       * was two bytes--e.g., 0040 0025 = @%--but then
-       * how will an ordinary MD-5 sum be matched?
-       * There is no way to standardize text to something
-       * like UTF-8 before transformation; speed cost is
-       * utterly prohibitive. The JavaScript standard
-       * itself needs to look at this: it should start
-       * providing access to strings as preformed UTF-8
-       * 8-bit unsigned value arrays.
-       */
-    md5blk = function (s) {
+    function md5blk(s) {
         var md5blks = [],
             i; /* Andy King said do it this way. */
 
@@ -18707,9 +17937,9 @@ LazySet.prototype["delete"] = function (key) {
             md5blks[i >> 2] = s.charCodeAt(i) + (s.charCodeAt(i + 1) << 8) + (s.charCodeAt(i + 2) << 16) + (s.charCodeAt(i + 3) << 24);
         }
         return md5blks;
-    },
+    }
 
-    md5blk_array = function (a) {
+    function md5blk_array(a) {
         var md5blks = [],
             i; /* Andy King said do it this way. */
 
@@ -18717,9 +17947,9 @@ LazySet.prototype["delete"] = function (key) {
             md5blks[i >> 2] = a[i] + (a[i + 1] << 8) + (a[i + 2] << 16) + (a[i + 3] << 24);
         }
         return md5blks;
-    },
+    }
 
-    md51 = function (s) {
+    function md51(s) {
         var n = s.length,
             state = [1732584193, -271733879, -1732584194, 271733878],
             i,
@@ -18757,9 +17987,9 @@ LazySet.prototype["delete"] = function (key) {
 
         md5cycle(state, tail);
         return state;
-    },
+    }
 
-    md51_array = function (a) {
+    function md51_array(a) {
         var n = a.length,
             state = [1732584193, -271733879, -1732584194, 271733878],
             i,
@@ -18805,49 +18035,27 @@ LazySet.prototype["delete"] = function (key) {
         md5cycle(state, tail);
 
         return state;
-    },
+    }
 
-    hex_chr = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'],
-
-    rhex = function (n) {
+    function rhex(n) {
         var s = '',
             j;
         for (j = 0; j < 4; j += 1) {
             s += hex_chr[(n >> (j * 8 + 4)) & 0x0F] + hex_chr[(n >> (j * 8)) & 0x0F];
         }
         return s;
-    },
+    }
 
-    hex = function (x) {
+    function hex(x) {
         var i;
         for (i = 0; i < x.length; i += 1) {
             x[i] = rhex(x[i]);
         }
         return x.join('');
-    },
-
-    md5 = function (s) {
-        return hex(md51(s));
-    },
-
-
-
-    ////////////////////////////////////////////////////////////////////////////
-
-    /**
-     * SparkMD5 OOP implementation.
-     *
-     * Use this class to perform an incremental md5, otherwise use the
-     * static methods instead.
-     */
-    SparkMD5 = function () {
-        // call reset to init the instance
-        this.reset();
-    };
-
+    }
 
     // In some cases the fast add32 function cannot be used..
-    if (md5('hello') !== '5d41402abc4b2a76b9719d911017c592') {
+    if (hex(md51('hello')) !== '5d41402abc4b2a76b9719d911017c592') {
         add32 = function (x, y) {
             var lsw = (x & 0xFFFF) + (y & 0xFFFF),
                 msw = (x >> 16) + (y >> 16) + (lsw >> 16);
@@ -18855,6 +18063,54 @@ LazySet.prototype["delete"] = function (key) {
         };
     }
 
+    // ---------------------------------------------------
+
+    function toUtf8(str) {
+        if (/[\u0080-\uFFFF]/.test(str)) {
+            str = unescape(encodeURIComponent(str));
+        }
+
+        return str;
+    }
+
+    function utf8Str2ArrayBuffer(str, returnUInt8Array) {
+        var length = str.length,
+           buff = new ArrayBuffer(length),
+           arr = new Uint8Array(buff),
+           i;
+
+        for (i = 0; i < length; i++) {
+            arr[i] = str.charCodeAt(i);
+        }
+
+        return returnUInt8Array ? arr : buff;
+    }
+
+    function arrayBuffer2Utf8Str(buff) {
+        return String.fromCharCode.apply(null, new Uint8Array(buff));
+    }
+
+    function concatenateArrayBuffers(first, second, returnUInt8Array) {
+        var result = new Uint8Array(first.byteLength + second.byteLength);
+
+        result.set(new Uint8Array(first));
+        result.set(new Uint8Array(second), first.byteLength);
+
+        return returnUInt8Array ? result : result.buffer;
+    }
+
+    // ---------------------------------------------------
+
+    /**
+     * SparkMD5 OOP implementation.
+     *
+     * Use this class to perform an incremental md5, otherwise use the
+     * static methods instead.
+     */
+    function SparkMD5() {
+        // call reset to init the instance
+        this.reset();
+    }
 
     /**
      * Appends a string.
@@ -18865,13 +18121,9 @@ LazySet.prototype["delete"] = function (key) {
      * @return {SparkMD5} The instance itself
      */
     SparkMD5.prototype.append = function (str) {
-        // converts the string to utf8 bytes if necessary
-        if (/[\u0080-\uFFFF]/.test(str)) {
-            str = unescape(encodeURIComponent(str));
-        }
-
-        // then append as binary
-        this.appendBinary(str);
+        // Converts the string to utf8 bytes if necessary
+        // Then append as binary
+        this.appendBinary(toUtf8(str));
 
         return this;
     };
@@ -18891,10 +18143,10 @@ LazySet.prototype["delete"] = function (key) {
             i;
 
         for (i = 64; i <= length; i += 64) {
-            md5cycle(this._state, md5blk(this._buff.substring(i - 64, i)));
+            md5cycle(this._hash, md5blk(this._buff.substring(i - 64, i)));
         }
 
-        this._buff = this._buff.substr(i - 64);
+        this._buff = this._buff.substring(i - 64);
 
         return this;
     };
@@ -18920,11 +18172,62 @@ LazySet.prototype["delete"] = function (key) {
         }
 
         this._finish(tail, length);
-        ret = !!raw ? this._state : hex(this._state);
+        ret = !!raw ? this._hash : hex(this._hash);
 
         this.reset();
 
         return ret;
+    };
+
+    /**
+     * Resets the internal state of the computation.
+     *
+     * @return {SparkMD5} The instance itself
+     */
+    SparkMD5.prototype.reset = function () {
+        this._buff = '';
+        this._length = 0;
+        this._hash = [1732584193, -271733879, -1732584194, 271733878];
+
+        return this;
+    };
+
+    /**
+     * Gets the internal state of the computation.
+     *
+     * @return {Object} The state
+     */
+    SparkMD5.prototype.getState = function () {
+        return {
+            buff: this._buff,
+            length: this._length,
+            hash: this._hash
+        };
+    };
+
+    /**
+     * Gets the internal state of the computation.
+     *
+     * @param {Object} state The state
+     *
+     * @return {SparkMD5} The instance itself
+     */
+    SparkMD5.prototype.setState = function (state) {
+        this._buff = state.buff;
+        this._length = state.length;
+        this._hash = state.hash;
+
+        return this;
+    };
+
+    /**
+     * Releases memory used by the incremental buffer and other additional
+     * resources. If you plan to use the instance again, use reset instead.
+     */
+    SparkMD5.prototype.destroy = function () {
+        delete this._hash;
+        delete this._buff;
+        delete this._length;
     };
 
     /**
@@ -18941,7 +18244,7 @@ LazySet.prototype["delete"] = function (key) {
 
         tail[i >> 2] |= 0x80 << ((i % 4) << 3);
         if (i > 55) {
-            md5cycle(this._state, tail);
+            md5cycle(this._hash, tail);
             for (i = 0; i < 16; i += 1) {
                 tail[i] = 0;
             }
@@ -18956,32 +18259,8 @@ LazySet.prototype["delete"] = function (key) {
 
         tail[14] = lo;
         tail[15] = hi;
-        md5cycle(this._state, tail);
+        md5cycle(this._hash, tail);
     };
-
-    /**
-     * Resets the internal state of the computation.
-     *
-     * @return {SparkMD5} The instance itself
-     */
-    SparkMD5.prototype.reset = function () {
-        this._buff = "";
-        this._length = 0;
-        this._state = [1732584193, -271733879, -1732584194, 271733878];
-
-        return this;
-    };
-
-    /**
-     * Releases memory used by the incremental buffer and other aditional
-     * resources. If you plan to use the instance again, use reset instead.
-     */
-    SparkMD5.prototype.destroy = function () {
-        delete this._state;
-        delete this._buff;
-        delete this._length;
-    };
-
 
     /**
      * Performs the md5 hash on a string.
@@ -18993,14 +18272,9 @@ LazySet.prototype["delete"] = function (key) {
      * @return {String|Array} The result
      */
     SparkMD5.hash = function (str, raw) {
-        // converts the string to utf8 bytes if necessary
-        if (/[\u0080-\uFFFF]/.test(str)) {
-            str = unescape(encodeURIComponent(str));
-        }
-
-        var hash = md51(str);
-
-        return !!raw ? hash : hex(hash);
+        // Converts the string to utf8 bytes if necessary
+        // Then compute it using the binary function
+        return SparkMD5.hashBinary(toUtf8(str), raw);
     };
 
     /**
@@ -19017,6 +18291,8 @@ LazySet.prototype["delete"] = function (key) {
         return !!raw ? hash : hex(hash);
     };
 
+    // ---------------------------------------------------
+
     /**
      * SparkMD5 OOP implementation for array buffers.
      *
@@ -19027,8 +18303,6 @@ LazySet.prototype["delete"] = function (key) {
         this.reset();
     };
 
-    ////////////////////////////////////////////////////////////////////////////
-
     /**
      * Appends an array buffer.
      *
@@ -19037,16 +18311,14 @@ LazySet.prototype["delete"] = function (key) {
      * @return {SparkMD5.ArrayBuffer} The instance itself
      */
     SparkMD5.ArrayBuffer.prototype.append = function (arr) {
-        // TODO: we could avoid the concatenation here but the algorithm would be more complex
-        //       if you find yourself needing extra performance, please make a PR.
-        var buff = this._concatArrayBuffer(this._buff, arr),
+        var buff = concatenateArrayBuffers(this._buff.buffer, arr, true),
             length = buff.length,
             i;
 
         this._length += arr.byteLength;
 
         for (i = 64; i <= length; i += 64) {
-            md5cycle(this._state, md5blk_array(buff.subarray(i - 64, i)));
+            md5cycle(this._hash, md5blk_array(buff.subarray(i - 64, i)));
         }
 
         // Avoids IE10 weirdness (documented above)
@@ -19076,14 +18348,12 @@ LazySet.prototype["delete"] = function (key) {
         }
 
         this._finish(tail, length);
-        ret = !!raw ? this._state : hex(this._state);
+        ret = !!raw ? this._hash : hex(this._hash);
 
         this.reset();
 
         return ret;
     };
-
-    SparkMD5.ArrayBuffer.prototype._finish = SparkMD5.prototype._finish;
 
     /**
      * Resets the internal state of the computation.
@@ -19093,34 +18363,42 @@ LazySet.prototype["delete"] = function (key) {
     SparkMD5.ArrayBuffer.prototype.reset = function () {
         this._buff = new Uint8Array(0);
         this._length = 0;
-        this._state = [1732584193, -271733879, -1732584194, 271733878];
+        this._hash = [1732584193, -271733879, -1732584194, 271733878];
 
         return this;
     };
 
     /**
-     * Releases memory used by the incremental buffer and other aditional
-     * resources. If you plan to use the instance again, use reset instead.
+     * Gets the internal state of the computation.
+     *
+     * @return {Object} The state
      */
-    SparkMD5.ArrayBuffer.prototype.destroy = SparkMD5.prototype.destroy;
+    SparkMD5.ArrayBuffer.prototype.getState = function () {
+        var state = SparkMD5.prototype.getState.call(this);
+
+        // Convert buffer to a string
+        state.buff = arrayBuffer2Utf8Str(state.buff);
+
+        return state;
+    };
 
     /**
-     * Concats two array buffers, returning a new one.
+     * Gets the internal state of the computation.
      *
-     * @param  {ArrayBuffer} first  The first array buffer
-     * @param  {ArrayBuffer} second The second array buffer
+     * @param {Object} state The state
      *
-     * @return {ArrayBuffer} The new array buffer
+     * @return {SparkMD5.ArrayBuffer} The instance itself
      */
-    SparkMD5.ArrayBuffer.prototype._concatArrayBuffer = function (first, second) {
-        var firstLength = first.length,
-            result = new Uint8Array(firstLength + second.byteLength);
+    SparkMD5.ArrayBuffer.prototype.setState = function (state) {
+        // Convert string to buffer
+        state.buff = utf8Str2ArrayBuffer(state.buff, true);
 
-        result.set(first);
-        result.set(new Uint8Array(second), firstLength);
-
-        return result;
+        return SparkMD5.prototype.setState.call(this, state);
     };
+
+    SparkMD5.ArrayBuffer.prototype.destroy = SparkMD5.prototype.destroy;
+
+    SparkMD5.ArrayBuffer.prototype._finish = SparkMD5.prototype._finish;
 
     /**
      * Performs the md5 hash on an array buffer.
@@ -19139,33 +18417,141 @@ LazySet.prototype["delete"] = function (key) {
     return SparkMD5;
 }));
 
-},{}],152:[function(_dereq_,module,exports){
-arguments[4][64][0].apply(exports,arguments)
-},{"153":153,"155":155,"156":156,"158":158,"64":64,"84":84}],153:[function(_dereq_,module,exports){
-arguments[4][66][0].apply(exports,arguments)
-},{"152":152,"156":156,"157":157,"158":158,"159":159,"55":55,"56":56,"60":60,"62":62,"66":66,"84":84}],154:[function(_dereq_,module,exports){
-arguments[4][67][0].apply(exports,arguments)
-},{"152":152,"156":156,"67":67,"84":84}],155:[function(_dereq_,module,exports){
-arguments[4][68][0].apply(exports,arguments)
-},{"152":152,"156":156,"158":158,"160":160,"56":56,"60":60,"68":68,"84":84}],156:[function(_dereq_,module,exports){
-arguments[4][69][0].apply(exports,arguments)
-},{"56":56,"69":69}],157:[function(_dereq_,module,exports){
+},{}],145:[function(_dereq_,module,exports){
+arguments[4][59][0].apply(exports,arguments)
+},{"146":146,"148":148,"149":149,"151":151,"59":59,"76":76}],146:[function(_dereq_,module,exports){
 arguments[4][61][0].apply(exports,arguments)
-},{"61":61}],158:[function(_dereq_,module,exports){
-arguments[4][70][0].apply(exports,arguments)
-},{"62":62,"70":70}],159:[function(_dereq_,module,exports){
-arguments[4][77][0].apply(exports,arguments)
-},{"56":56,"77":77}],160:[function(_dereq_,module,exports){
-arguments[4][71][0].apply(exports,arguments)
-},{"71":71}],161:[function(_dereq_,module,exports){
-arguments[4][74][0].apply(exports,arguments)
-},{"154":154,"74":74}],162:[function(_dereq_,module,exports){
-arguments[4][105][0].apply(exports,arguments)
-},{"105":105}],163:[function(_dereq_,module,exports){
+},{"145":145,"149":149,"150":150,"151":151,"152":152,"49":49,"50":50,"54":54,"57":57,"61":61,"76":76}],147:[function(_dereq_,module,exports){
+arguments[4][62][0].apply(exports,arguments)
+},{"145":145,"149":149,"62":62,"76":76}],148:[function(_dereq_,module,exports){
+arguments[4][63][0].apply(exports,arguments)
+},{"145":145,"149":149,"151":151,"153":153,"50":50,"54":54,"63":63,"76":76}],149:[function(_dereq_,module,exports){
+(function (Buffer){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// NOTE: These type checking functions intentionally don't use `instanceof`
+// because it is fragile and can be easily faked with `Object.create()`.
+function isArray(ar) {
+  return Array.isArray(ar);
+}
+exports.isArray = isArray;
+
+function isBoolean(arg) {
+  return typeof arg === 'boolean';
+}
+exports.isBoolean = isBoolean;
+
+function isNull(arg) {
+  return arg === null;
+}
+exports.isNull = isNull;
+
+function isNullOrUndefined(arg) {
+  return arg == null;
+}
+exports.isNullOrUndefined = isNullOrUndefined;
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+exports.isNumber = isNumber;
+
+function isString(arg) {
+  return typeof arg === 'string';
+}
+exports.isString = isString;
+
+function isSymbol(arg) {
+  return typeof arg === 'symbol';
+}
+exports.isSymbol = isSymbol;
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+exports.isUndefined = isUndefined;
+
+function isRegExp(re) {
+  return isObject(re) && objectToString(re) === '[object RegExp]';
+}
+exports.isRegExp = isRegExp;
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+exports.isObject = isObject;
+
+function isDate(d) {
+  return isObject(d) && objectToString(d) === '[object Date]';
+}
+exports.isDate = isDate;
+
+function isError(e) {
+  return isObject(e) &&
+      (objectToString(e) === '[object Error]' || e instanceof Error);
+}
+exports.isError = isError;
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+exports.isFunction = isFunction;
+
+function isPrimitive(arg) {
+  return arg === null ||
+         typeof arg === 'boolean' ||
+         typeof arg === 'number' ||
+         typeof arg === 'string' ||
+         typeof arg === 'symbol' ||  // ES6 symbol
+         typeof arg === 'undefined';
+}
+exports.isPrimitive = isPrimitive;
+
+function isBuffer(arg) {
+  return Buffer.isBuffer(arg);
+}
+exports.isBuffer = isBuffer;
+
+function objectToString(o) {
+  return Object.prototype.toString.call(o);
+}
+}).call(this,{"isBuffer":_dereq_(55)})
+},{"55":55}],150:[function(_dereq_,module,exports){
+arguments[4][56][0].apply(exports,arguments)
+},{"56":56}],151:[function(_dereq_,module,exports){
+arguments[4][65][0].apply(exports,arguments)
+},{"57":57,"65":65}],152:[function(_dereq_,module,exports){
+arguments[4][72][0].apply(exports,arguments)
+},{"50":50,"72":72}],153:[function(_dereq_,module,exports){
+arguments[4][66][0].apply(exports,arguments)
+},{"66":66}],154:[function(_dereq_,module,exports){
+arguments[4][69][0].apply(exports,arguments)
+},{"147":147,"69":69}],155:[function(_dereq_,module,exports){
+arguments[4][101][0].apply(exports,arguments)
+},{"101":101}],156:[function(_dereq_,module,exports){
 (function (process){
-var Transform = _dereq_(161)
-  , inherits  = _dereq_(79).inherits
-  , xtend     = _dereq_(162)
+var Transform = _dereq_(154)
+  , inherits  = _dereq_(74).inherits
+  , xtend     = _dereq_(155)
 
 function DestroyableTransform(opts) {
   Transform.call(this, opts)
@@ -19260,8 +18646,8 @@ module.exports.obj = through2(function (options, transform, flush) {
   return t2
 })
 
-}).call(this,_dereq_(62))
-},{"161":161,"162":162,"62":62,"79":79}],164:[function(_dereq_,module,exports){
+}).call(this,_dereq_(57))
+},{"154":154,"155":155,"57":57,"74":74}],157:[function(_dereq_,module,exports){
 'use strict';
 
 /**

@@ -1,7 +1,11 @@
 'use strict';
 
+var extend = require('js-extend').extend;
+var Promise = require('../../deps/promise');
 var errors = require('../../deps/errors');
-var utils = require('../../utils');
+var pick = require('../../deps/pick');
+var safeJsonParse = require('../../deps/safeJsonParse');
+var safeJsonStringify = require('../../deps/safeJsonStringify');
 var base64 = require('../../deps/binary/base64');
 var btoa = base64.btoa;
 var constants = require('./constants');
@@ -38,10 +42,12 @@ exports.applyNext = function () {
 };
 
 exports.idbError = function (callback) {
-  return function (event) {
-    var message = (event.target && event.target.error &&
-      event.target.error.name) || event.target;
-    callback(errors.error(errors.IDB_ERROR, message, event.type));
+  return function (evt) {
+    var message = 'unknown_error';
+    if (evt.target && evt.target.error) {
+      message = evt.target.error.name || evt.target.error.message;
+    }
+    callback(errors.error(errors.IDB_ERROR, message, evt.type));
   };
 };
 
@@ -54,7 +60,7 @@ exports.idbError = function (callback) {
 // format for the revision trees other than JSON.
 exports.encodeMetadata = function (metadata, winningRev, deleted) {
   return {
-    data: utils.safeJsonStringify(metadata),
+    data: safeJsonStringify(metadata),
     winningRev: winningRev,
     deletedOrLocal: deleted ? '1' : '0',
     seq: metadata.seq, // highest seq for this doc
@@ -66,7 +72,7 @@ exports.decodeMetadata = function (storedObject) {
   if (!storedObject) {
     return null;
   }
-  var metadata = utils.safeJsonParse(storedObject.data);
+  var metadata = safeJsonParse(storedObject.data);
   metadata.winningRev = storedObject.winningRev;
   metadata.deleted = storedObject.deletedOrLocal === '1';
   metadata.seq = storedObject.seq;
@@ -149,20 +155,20 @@ exports.fetchAttachmentsIfNecessary = function (doc, opts, txn, cb) {
 // a base64-encoded string, and if it's a Blob it
 // needs to be read outside of the transaction context
 exports.postProcessAttachments = function (results, asBlob) {
-  return utils.Promise.all(results.map(function (row) {
+  return Promise.all(results.map(function (row) {
     if (row.doc && row.doc._attachments) {
       var attNames = Object.keys(row.doc._attachments);
-      return utils.Promise.all(attNames.map(function (att) {
+      return Promise.all(attNames.map(function (att) {
         var attObj = row.doc._attachments[att];
         if (!('body' in attObj)) { // already processed
           return;
         }
         var body = attObj.body;
         var type = attObj.content_type;
-        return new utils.Promise(function (resolve) {
+        return new Promise(function (resolve) {
           exports.readBlobData(body, type, asBlob, function (data) {
-            row.doc._attachments[att] = utils.extend(
-              utils.pick(attObj, ['digest', 'content_type']),
+            row.doc._attachments[att] = extend(
+              pick(attObj, ['digest', 'content_type']),
               {data: data}
             );
             resolve();

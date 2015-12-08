@@ -1,13 +1,30 @@
 'use strict';
 
-var utils = require('./../utils');
-var clone = utils.clone;
-var Promise = utils.Promise;
-
-var MAX_SIMULTANEOUS_REVS = 50;
+var clone = require('../deps/clone');
+var Promise = require('../deps/promise');
 
 function isGenOne(rev) {
   return /^1-/.test(rev);
+}
+
+function createBulkGetOpts(diffs) {
+  var requests = [];
+  Object.keys(diffs).forEach(function (id) {
+    var missingRevs = diffs[id].missing;
+    missingRevs.forEach(function (missingRev) {
+      requests.push({
+        id: id,
+        rev: missingRev
+      });
+    });
+  });
+
+  return {
+    docs: requests,
+    revs: true,
+    attachments: true,
+    binary: true
+  };
 }
 
 //
@@ -21,43 +38,27 @@ function getDocs(src, diffs, state) {
 
   var resultDocs = [];
 
-  function fetchMissingRevs(id, missingRevs) {
-    var opts = {
-      revs: true,
-      open_revs: missingRevs,
-      attachments: true,
-      binary: true
-    };
-    return src.get(id, opts).then(function (docs) {
+  function getAllDocs() {
+
+    var bulkGetOpts = createBulkGetOpts(diffs);
+
+    if (!bulkGetOpts.docs.length) { // optimization: skip empty requests
+      return;
+    }
+
+    return src.bulkGet(bulkGetOpts).then(function (bulkGetResponse) {
+      /* istanbul ignore if */
       if (state.cancelled) {
         throw new Error('cancelled');
       }
-      docs.forEach(function (doc) {
-        if (doc.ok) {
-          resultDocs.push(doc.ok);
-        }
+      bulkGetResponse.results.forEach(function (bulkGetInfo) {
+        bulkGetInfo.docs.forEach(function (doc) {
+          if (doc.ok) {
+            resultDocs.push(doc.ok);
+          }
+        });
       });
     });
-  }
-
-  function processDiffDoc(id) {
-    var missing = diffs[id].missing;
-    // avoid url too long error by batching
-    var missingBatches = [];
-    for (var i = 0; i < missing.length; i += MAX_SIMULTANEOUS_REVS) {
-      var missingBatch = missing.slice(i,
-        Math.min(missing.length, i + MAX_SIMULTANEOUS_REVS));
-      missingBatches.push(missingBatch);
-    }
-
-    return Promise.all(missingBatches.map(function (missingRevs) {
-      return fetchMissingRevs(id, missingRevs);
-    }));
-  }
-
-  function getAllDocs() {
-    var diffKeys = Object.keys(diffs);
-    return Promise.all(diffKeys.map(processDiffDoc));
   }
 
   function hasAttachments(doc) {
