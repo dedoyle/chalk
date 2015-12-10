@@ -6,7 +6,7 @@
   <ion-content class="assertive-bg light has-footer">
     <de-swipe-right currday="expense.currDay" lists="expense.lists" index="{{expense.currIndex}}">
       <ion-slide-box show-pager="false" active-slide="expense.currIndex" on-slide-changed="expense.slideHasChanged(index)" class="swipe-box">
-        <ion-slide data-ng-repeat="list in expense.lists">
+        <ion-slide data-ng-repeat="list in expense.lists track by list.currday">
           <div class="show-box">
             <div class="l">CNY</div>
             <div class="r">{{ list.items | sumOfItems:'money' }}</div>

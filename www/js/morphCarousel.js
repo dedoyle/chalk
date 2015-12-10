@@ -209,7 +209,7 @@ angular.module('morphCarousel', [])
                 'ng-style="{\'-webkit-transform\': carouselRotation, \'transform\': carouselRotation}">',
                 '<div class="morph-carousel__item" ' +
                 'style="width: {{ ::getItemWidth() }}; -webkit-transform: {{ ::getItemRotation($index) }}; transform: {{ ::getItemRotation($index) }}" ' +
-                'ng-repeat="item in ::items">{{ ::getItemValue(item) }}</div>',
+                'ng-repeat="item in ::items" data-once-html="getItemValue(item)"></div>',
                 '</div>',
                 '<div class="morph-carousel__separator"></div>',
                 '</div>',

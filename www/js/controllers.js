@@ -294,9 +294,9 @@ function SetBudgetController($scope, $ionicPlatform, BudgetService, $timeout) {
     BudgetService.getBudget().then(function (budget) {
       vm.budget = budget;
 
-      $scope.$watch(function () {
+      $scope.$watchCollection(function () {
         return vm.budget;
-      }, saveBudget, true);
+      }, saveBudget);
     });
   });
 

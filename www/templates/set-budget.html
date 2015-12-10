@@ -11,6 +11,6 @@
         <morph-carousel data-items="setbudget.days" on-selected="setbudget.budget.regularDay" identifier="modal-carousel"></morph-carousel>
       </ion-item>
     </ion-list>
-    <keyboard-number onlynumber="true" data-ng-show="setbudget.showkeyboard" calculation="setbudget.budget.money" showkeyboard="setbudget.showkeyboard"></keyboard-number>
+    <keyboard-number onlynumber="true" data-ng-if="setbudget.showkeyboard" calculation="setbudget.budget.money" showkeyboard="setbudget.showkeyboard"></keyboard-number>
   </ion-content>
 </ion-view>

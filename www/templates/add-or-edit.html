@@ -7,13 +7,13 @@
       <div class="r">{{edit.item.money || '0' | currency: '￥'}}</div>
     </div>
     <ion-slide-box class="tag-slider" on-slide-changed="edit.slideChanged(index)">
-      <ion-slide data-ng-repeat="tags in edit.tag_list">
+      <ion-slide data-ng-repeat="tags in ::edit.tag_list">
         <ul class="row" data-ng-repeat="row in tags">
           <li class="col col-20" data-ng-repeat="tag in row">
-            <div data-ng-class="{'activated': edit.isSelected(tag.name)}">
+            <div data-once-class="{'activated': edit.isSelected(tag.name)}">
               <a href="#" data-ng-click="edit.select(tag.name, tag.icon)">
-                <i class="icon {{ tag.icon }}"></i>
-                <p>{{ tag.name }}</p>
+                <i class="icon" data-once-class="tag.icon"></i>
+                <p data-once-text="tag.name"></p>
               </a>
             </div>
           </li>
@@ -25,6 +25,6 @@
       <a href="#" class="item item-icon-left" data-ng-click="edit.showAccounts()"><i class="icon ion-cash"></i><div class="item-note"><p>账户</p><p>{{ edit.item.account || '现金' }}</p></div></a>
       <a href="#" class="item item-icon-left" data-ng-click="edit.showRegularExpense()"><i class="icon ion-refresh"></i><div class="item-note"><p>固定支出</p><p>{{ edit.item.regularExpense || '无' }}</p></div></a>
     </div>
-    <keyboard-number data-ng-show="edit.showkeyboard" calculation="edit.item.money" showkeyboard="edit.showkeyboard"></keyboard-number>
+    <keyboard-number data-ng-if="edit.showkeyboard" calculation="edit.item.money" showkeyboard="edit.showkeyboard"></keyboard-number>
   </ion-content>
 </ion-view>
