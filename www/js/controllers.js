@@ -56,11 +56,10 @@ function AppCtrl($scope, $ionicModal, $timeout) {
   };
 }
 
-ExpenseController.$inject = ['$scope', '$rootScope', 'ExpenseService', 'BudgetService', '$state', '$ionicPlatform', '$ionicPopup', '$filter', '$ionicSlideBoxDelegate'];
+ExpenseController.$inject = ['$rootScope', 'ExpenseService', 'BudgetService', '$state', '$ionicSlideBoxDelegate'];
 
-function ExpenseController($scope, $rootScope, ExpenseService, BudgetService, $state, $ionicPlatform, $ionicPopup, $filter, $ionicSlideBoxDelegate) {
-  var vm = this,
-    items;
+function ExpenseController($rootScope, ExpenseService, BudgetService, $state, $ionicSlideBoxDelegate) {
+  var vm = this;
 
   vm.lists = [];
   vm.currDay = moment().format("YYYY-MM-DD");

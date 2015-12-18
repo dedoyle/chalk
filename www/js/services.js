@@ -207,7 +207,6 @@ function ExpenseService($q) {
     _db = new PouchDB('expense', {
       adapter: 'websql'
     });
-    console.log('initdb');
   }
 
   function destroyexpense() {
@@ -235,7 +234,6 @@ function ExpenseService($q) {
   }
 
   function getExpenseList(day) {
-    console.log('get expense list');
     return $q.when(_db.allDocs({
         include_docs: true
       }))
