@@ -10,7 +10,7 @@
       <ion-slide data-ng-repeat="tags in ::edit.tag_list">
         <ul class="row" data-ng-repeat="row in tags">
           <li class="col col-20" data-ng-repeat="tag in row">
-            <div data-once-class="{'activated': edit.isSelected(tag.name)}">
+            <div data-ng-class="{'activated': edit.isSelected(tag.name)}">
               <a href="#" data-ng-click="edit.select(tag.name, tag.icon)">
                 <i class="icon" data-once-class="tag.icon"></i>
                 <p data-once-text="tag.name"></p>
@@ -21,9 +21,15 @@
       </ion-slide>
     </ion-slide-box>
     <div class="list">
-      <a href="#" class="item item-icon-left" data-ng-click="edit.goToDescription()"><i class="icon ion-edit"></i><div class="item-note"><p>描述</p><p class="ovh">{{ edit.item.description }}</p></div></a>
-      <a href="#" class="item item-icon-left" data-ng-click="edit.showAccounts()"><i class="icon ion-cash"></i><div class="item-note"><p>账户</p><p>{{ edit.item.account || '现金' }}</p></div></a>
-      <a href="#" class="item item-icon-left" data-ng-click="edit.showRegularExpense()"><i class="icon ion-refresh"></i><div class="item-note"><p>固定支出</p><p>{{ edit.item.regularExpense || '无' }}</p></div></a>
+      <a href="#" class="item item-icon-left" data-ng-click="edit.goToDescription()"><i class="icon ion-edit"></i>
+       <div class="item-note"><p>描述</p><p class="ovh">{{ edit.item.description }}</p></div>
+      </a>
+      <a href="#" class="item item-icon-left" data-ng-click="edit.showAccounts()"><i class="icon ion-cash"></i>
+       <div class="item-note"><p>账户</p><p>{{ edit.item.account || '现金' }}</p></div>
+      </a>
+      <a href="#" class="item item-icon-left" data-ng-click="edit.showRegularExpense()"><i class="icon ion-refresh"></i>
+       <div class="item-note"><p>固定支出</p><p>{{ edit.item.regularExpense || '无' }}</p></div>
+      </a>
     </div>
     <keyboard-number data-ng-if="edit.showkeyboard" calculation="edit.item.money" showkeyboard="edit.showkeyboard"></keyboard-number>
   </ion-content>

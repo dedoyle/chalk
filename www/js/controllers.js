@@ -173,6 +173,7 @@ function EditController($scope, $rootScope, $state, $stateParams, expense, actio
   } else {
     vm.item = expense;
     vm.oldExpense = vm.item.money;
+
   }
 
   vm.select = select;
@@ -205,7 +206,7 @@ function EditController($scope, $rootScope, $state, $stateParams, expense, actio
     $state.go('app.description', {
       expenseId: vm.item._id,
       action: '编辑',
-      isAdd: '0'
+      isAdd: vm.action.isAdd
     });
   }
 

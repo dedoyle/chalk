@@ -14,9 +14,9 @@
           <ion-list class="list-primary">
             <ion-item data-ng-repeat="item in list.items | orderBy: 'date':false track by item._id">
               <div data-ng-click="expense.goToDetail(item)">
-                <i class="icon" data-once-class="item.icon"></i>
-                <span data-once-text="item.name"></span>
-                <span class="item-note" data-once-text="item.money"></span>
+                <i class="icon" data-ng-class="item.icon"></i>
+                <span data-ng-bind="item.name"></span>
+                <span class="item-note" data-ng-bind="item.money"></span>
               </div>
             </ion-item>
           </ion-list>
